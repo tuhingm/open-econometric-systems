@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: oes-api
+    runtime: python
+    rootDir: oes-backend
+    buildCommand: pip install .
+    startCommand: uvicorn oes_api.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: OES_ALLOWED_ORIGINS
+        value: https://tuhingm.github.io
