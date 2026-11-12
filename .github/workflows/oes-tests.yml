@@ -1,0 +1,29 @@
+name: OES backend tests
+
+on:
+  push:
+    branches: [main, oes-platform-bootstrap]
+    paths:
+      - "oes-backend/**"
+      - ".github/workflows/oes-tests.yml"
+  pull_request:
+    paths:
+      - "oes-backend/**"
+      - ".github/workflows/oes-tests.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: oes-backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: oes-backend/pyproject.toml
+      - run: pip install -e ".[dev]"
+      - run: ruff check src tests
+      - run: pytest -q
