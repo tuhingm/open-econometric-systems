@@ -23,6 +23,31 @@ groups have no guide pages on the website yet.
 
 DSGE models are not included: they are solved and estimated in Dynare (see the DSGE Guide).
 
+## Model Advisor
+
+The new rule-based Model Advisor profiles a researcher's dataset and ranks models that are
+actually implemented in the engine. It accepts the research objective and selected variable
+roles, then returns model recommendations, reasons, conditions to check, preliminary tests,
+and links to the relevant guide and example. It supports explanatory, prediction, forecasting,
+causal, and descriptive objectives.
+
+The advisor is deliberately transparent: it does not claim to prove identification,
+cointegration, stationarity, instrument validity, or parallel trends from column names.
+See [the Model Advisor documentation](docs/model-advisor.md).
+
+Python API:
+
+```python
+from oes_engine.advisor import profile_data, recommend_models
+
+profile = profile_data(df, time="year", unit="country")
+advice = recommend_models(
+    df, objective="causal", y="emissions",
+    x=["income", "energy_use"], time="year",
+    unit="country", treatment="policy",
+)
+```
+
 ## How it works
 
 ```
@@ -48,7 +73,7 @@ print(r["summary"])
 ```
 
 `oes_engine.catalog()` lists every model with its input fields and its guide example. Data operations (lags,
-differences, logs, growth rates, cross-sectional demeaning, sample restriction) are passed as `spec["ops"]`.
+differences, logs, growth rates, cross-sectional demeaning, sample restriction) are passed in `spec["ops"]`.
 
 ## Testing
 
@@ -78,3 +103,10 @@ reference values in `almamun/oes/engine/expected.json`.
 
 `oes-backend/` is an earlier FastAPI service with an OLS endpoint (`render.yaml` deploys it to Render). The website
 does not need it: all estimation runs in the browser.
+
+## 1,000-model development target
+
+The current catalogue is the set of implemented estimators, not a count of every
+parameterization or option. The 1,000-model target will be developed in validated stages.
+A model is added to the public executable catalogue only after its estimator, input schema,
+diagnostics, examples, reference tests, and browser compatibility checks are complete.
