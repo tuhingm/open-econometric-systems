@@ -1,5 +1,7 @@
 # Open Econometric Systems (OES)
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://dashboard.render.com/blueprint/new?repo=https://github.com/tuhingm/open-econometric-systems)
+
 A free, open-source, browser-accessible econometric platform.
 
 ## Current implementation
