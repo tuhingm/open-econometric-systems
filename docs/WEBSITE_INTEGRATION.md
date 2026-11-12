@@ -1,42 +1,28 @@
 # Integrating OES into the academic website
 
-The academic site is a static GitHub Pages site at `https://tuhingm.github.io/almamun/`. Keep the existing page structure and visual language. Add a navigation item for **Econometric Estimation Laboratory** and mount the lab in a dedicated page or section.
+The page lives in the website repository (`tuhingm/almamun`) at `oes/`:
 
-## 1. Add the client
+| File | Purpose |
+|---|---|
+| `oes/index.html` | the workspace: model choice, data upload or guide example, variable operations, specification form, results, test suite |
+| `oes/worker.js` | Web Worker that starts Pyodide 0.27.2, loads the engine and runs `oes_engine.run_json` |
+| `oes/engine/oes_engine/*.py` | a copy of `oes-engine/oes_engine` from this repository |
+| `oes/engine/catalog.json` | `oes_engine.catalog()`: models, fields, examples, Pyodide packages |
+| `oes/engine/expected.json` | reference results of every guide example for the in-browser test suite |
 
-Set the API URL to the deployed HTTPS service, then load the client:
+## Updating the engine on the website
 
-```html
-<script>window.OES_API_BASE = "https://YOUR-OES-SERVICE.example.com";</script>
-<script src="/almamun/oes-frontend/oes-client.js" defer></script>
+```bash
+# in the website repository, with the Pyodide 0.27.2 package versions installed
+pip install numpy==2.0.2 pandas==2.2.3 scipy==1.14.1 statsmodels==0.14.4 scikit-learn==1.6.1 xgboost==2.1.2
+python3 tools/oes_sync.py /path/to/open-econometric-systems
 ```
 
-The placeholder URL must be replaced with the actual deployed service URL.
+Then bump `__version__` in `oes_engine/__init__.py` (it is used to bypass browser caches) and commit both repositories.
 
-## 2. Check API availability
+## Adding a model
 
-```javascript
-const catalogue = await OES.models();
-const runnable = catalogue.models.filter(model => model.status === "implemented");
-```
-
-Render planned models as unavailable/roadmap entries; never expose a Run button for a planned method.
-
-## 3. Execute OLS
-
-```javascript
-const result = await OES.estimateOLS({
-  data: {
-    y: [1.2, 2.1, 2.8, 4.2, 5.1],
-    x: [[1, 0.2], [1, 0.4], [1, 0.6], [1, 0.8], [1, 1.0]]
-  },
-  variable_names: ["const", "x1"],
-  covariance: "HC1",
-  confidence_level: 0.95
-});
-console.table(result.coefficients);
-```
-
-## 4. Production requirements
-
-Use HTTPS, set exact CORS origins, add request limits and rate limiting, and never store uploaded datasets unless an explicit retention and deletion design is implemented. Do not put API keys or secrets in the static website JavaScript.
+1. Write the estimator in `oes-engine/oes_engine/` returning `core.result(...)`.
+2. Register it in `MODELS` in `oes_engine/__init__.py` with its input fields and a guide example.
+3. Add a reference test to `oes-engine/tests/test_models.py`.
+4. Run `tools/oes_sync.py` in the website repository. The page builds its forms from the catalogue, so no HTML changes are needed.

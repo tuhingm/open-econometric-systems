@@ -1,0 +1,37 @@
+name: OES engine tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "oes-engine/**"
+      - ".github/workflows/oes-engine-tests.yml"
+  pull_request:
+    paths:
+      - "oes-engine/**"
+      - ".github/workflows/oes-engine-tests.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out the website (guide example datasets)
+        uses: actions/checkout@v4
+        with:
+          repository: tuhingm/almamun
+          path: almamun
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the package versions of Pyodide 0.27.2
+        run: |
+          pip install numpy==2.0.2 pandas==2.2.3 scipy==1.14.1 statsmodels==0.14.4 scikit-learn==1.6.1 \
+                      patsy==0.5.6 xgboost==2.1.2 pytest linearmodels==7.0
+          pip install --no-deps -e oes-engine
+      - name: Run the tests
+        working-directory: oes-engine
+        env:
+          OES_SITE: ${{ github.workspace }}/almamun
+        run: python -m pytest -q

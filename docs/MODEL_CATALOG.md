@@ -1,30 +1,46 @@
-# OES Extended Model Catalogue
+# OES model catalogue
 
-Statuses: **implemented** means an executable, tested endpoint exists; **planned** means scoped but not yet executable. The API catalogue is authoritative for live availability.
+All 31 models below are implemented in `oes-engine` and run in the browser at
+<https://tuhingm.github.io/almamun/oes/>. `oes_engine.catalog()` is the machine-readable version (input fields,
+guide page, example dataset, Pyodide packages).
 
-| Domain | Methods in scope |
-|---|---|
-| Linear and nonlinear regression | OLS, WLS, GLS, feasible GLS, robust covariance, LAD, nonlinear least squares |
-| Instrumental variables and GMM | 2SLS, LIML, k-class, 3SLS, one-step/two-step GMM, continuously updated GMM |
-| Time series | AR, MA, ARMA, ARIMA, ARFIMA, ARMAX, distributed lag, ARDL, UECM, NARDL |
-| Unit roots and breaks | ADF, PP, KPSS, DF-GLS, Zivot-Andrews, Perron-type break tests |
-| Cointegration | Engle-Granger, Johansen, FMOLS, DOLS, CCR, bounds testing |
-| Multivariate systems | VAR, SVAR, VECM, Bayesian VAR, TVP-VAR, impulse responses, forecast error variance decomposition |
-| Volatility | ARCH, GARCH, GJR-GARCH, EGARCH, TGARCH, APARCH, component GARCH, multivariate GARCH |
-| Panel data | pooled OLS, FE, RE, between, first differences, panel GLS, panel IV |
-| Dynamic panels | Difference GMM, System GMM, Arellano-Bond, Blundell-Bond |
-| Heterogeneous panels | MG, PMG, DFE, CCE, CCEMG, AMG, CS-ARDL |
-| Panel tests | LLC, IPS, Fisher-ADF/PP, CIPS, Pedroni, Kao, Westerlund, Pesaran CD |
-| Limited dependent variables | binary/ordered Logit and Probit, Tobit, Heckman selection |
-| Count and duration | Poisson, negative binomial, zero-inflated count, survival/duration models |
-| Quantile methods | classical quantile regression, panel quantile, quantile ARDL |
-| Nonlinear and regime models | threshold regression, TAR, SETAR, STAR, Markov switching, smooth transition |
-| State-space | Kalman filter, smoother, local level/trend, time-varying parameter models |
-| Factor methods | PCA, static factor models, dynamic factor models |
-| Bayesian | Bayesian regression, BVAR, Bayesian panel models, MCMC diagnostics |
-| Causal inference | DiD, event study, synthetic control, treatment effects, IV causal models |
-| Machine learning | ridge, LASSO, elastic net, random forest, gradient boosting, XGBoost, support vector regression, neural networks |
-| Structural macro | DSGE solution, likelihood construction, Bayesian estimation, impulse responses and stochastic simulation |
-| Forecasting | static/dynamic, recursive, rolling, expanding-window, forecast combination and evaluation |
+| id | Model | Guide page | Implementation | Reference used in the tests |
+|---|---|---|---|---|
+| `ols` | OLS with diagnostics | research-guide/ols | statsmodels | statsmodels |
+| `ardl` | ARDL bounds test | research-guide/ardl | statsmodels ARDL/UECM | guide (F = 8.18, long run 1.98) |
+| `nardl` | Nonlinear ARDL | research-guide/nardl | partial sums + UECM, Wald symmetry tests | partial-sum identities |
+| `var` | VAR | research-guide/var | statsmodels | statsmodels |
+| `vecm` | VECM | research-guide/vecm | statsmodels (Johansen) | statsmodels |
+| `iv_gmm` | 2SLS and GMM | research-guide/gmm | NumPy | linearmodels IV2SLS / IVGMM |
+| `pols` | Pooled OLS | panel-data-guide/pols | NumPy | linearmodels PooledOLS |
+| `fe` | Fixed effects | panel-data-guide/fe | NumPy (within, two-way) | linearmodels PanelOLS |
+| `re` | Random effects | panel-data-guide/re | NumPy (Swamy-Arora) | linearmodels RandomEffects |
+| `fd` | First differences | panel-data-guide/diff | NumPy | linearmodels PanelOLS on differences |
+| `fedk` | FE, Driscoll-Kraay | panel-data-guide/fedk | NumPy | linearmodels (kernel) |
+| `diff_gmm` | Difference GMM | panel-data-guide/gmm | guide helper `diff_gmm.py` | Arellano and Bond (1991) |
+| `mg` | Mean group / CCE-MG | panel-data-guide/mg | guide helper `panel_estimators.py` | unit-by-unit OLS |
+| `pmg` | PMG / MG / DFE | panel-data-guide/pmg | guide helper | convergence, Hausman |
+| `csardl` | CS-ARDL | panel-data-guide/csardl | guide helper | simulated panel |
+| `did` | Difference-in-differences | causal-inference-guide/did | guide helper `causal_tests.py` | simulation; TWFE vs linearmodels |
+| `staggered` | Staggered DiD | causal-inference-guide/staggered | guide helper | runs on guide data |
+| `its` | Interrupted time series | causal-inference-guide/its | guide helper | runs on guide data |
+| `iv` | IV (2SLS) | causal-inference-guide/iv | guide helper | linearmodels IV2SLS |
+| `rdd` | Regression discontinuity | causal-inference-guide/rdd | guide helper | guide helper `rd_estimate` |
+| `scm` | Synthetic control | causal-inference-guide/scm | guide helper | weight constraints |
+| `gsc` | Generalized synthetic control | causal-inference-guide/gsc | guide helper | runs on guide data |
+| `lasso` | LASSO | ml-guide/lasso | scikit-learn | scikit-learn |
+| `ridge` | Ridge | ml-guide/ridge | scikit-learn | runs on guide data |
+| `enet` | Elastic net | ml-guide/enet | scikit-learn | runs on guide data |
+| `rf` | Random forest | ml-guide/rf | scikit-learn | runs on guide data |
+| `xgb` | XGBoost | ml-guide/xgb | xgboost (native API) | xgboost |
+| `dml_plr` | Double ML, partially linear | ml-guide/dml-plr | guide cross-fitting | simulation |
+| `dml_irm` | Double ML, interactive | ml-guide/dml-irm | guide cross-fitting | simulation |
+| `dml_iv` | Double ML, partially linear IV | ml-guide/dml-iv | guide cross-fitting | simulation |
+| `causal_forest` | Causal forest (DR-learner forest) | ml-guide/causal-forest | AIPW scores + random forest | simulation (heterogeneity found) |
 
-This is the intended extended scope, not a statement that all methods are already implemented. The initial bootstrap implements OLS only.
+Notes
+- The causal forest is a doubly robust forest, not EconML's `CausalForestDML` (EconML does not run in Pyodide).
+- The double-ML learners use lighter settings than the guides (100 trees by default) so they run in the browser;
+  the number of trees, folds and repetitions can be raised in the form.
+- XGBoost is called through its native `train` API because `XGBRegressor` 2.1 is not compatible with the
+  scikit-learn 1.6 shipped with Pyodide 0.27.

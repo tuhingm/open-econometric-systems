@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oes-engine"
+version = "1.0.0"
+description = "Open Econometric Systems estimation engine: time-series, panel, causal-inference and machine-learning models in pure Python (runs in the browser under Pyodide)"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.26", "pandas>=2.0", "scipy>=1.11", "statsmodels>=0.14", "scikit-learn>=1.3", "xgboost>=2.0"]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "linearmodels>=6"]
+
+[tool.setuptools]
+packages = ["oes_engine"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
