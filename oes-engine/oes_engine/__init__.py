@@ -13,10 +13,10 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from . import causal, ml, panel, timeseries
+from . import bayes, causal, markov, ml, panel, pvar, statespace_var, timeseries
 from .core import OESError, read_csv, time_order
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 # field helpers -------------------------------------------------------------------------------------------------
 def col(key, label, required=True, help=""):
@@ -210,8 +210,100 @@ MODELS = [
          example=dict(file=MLD + "k401_irm.csv", spec=dict(y="net_tfa", treat="e401", x="__all__"))),
 ]
 
+# ------------------------------------------------------------------ Bayesian (no guide pages yet)
+OX = "oes/examples/"
+BV_PRIOR = sel("prior", "Prior", [["minnesota", "Minnesota (Litterman)"], ["nw", "Normal-Wishart"], ["inw", "Independent Normal-Wishart"],
+                                  ["nd", "Normal-diffuse"]], "minnesota")
+HYP = [num("lambda1", "Overall tightness lambda1", 0.1), num("lambda2", "Cross-variable tightness lambda2", 0.5),
+       num("lambda3", "Lag decay lambda3", 1), num("lambda4", "Constant tightness lambda4", 100)]
+DRAWS = [num("draws", "Posterior draws", 1000), num("burn", "Burn-in (Gibbs samplers)", 500), num("seed", "Random seed", 0)]
+MODELS += [
+    dict(id="bayes_reg", group="Bayesian", name="Bayesian linear regression", guide=None, fn=bayes.bayes_reg,
+         fields=[col("y", "Dependent variable"), cols("x", "Explanatory variables"), TIME,
+                 sel("method", "Method", [["conjugate", "Exact (Normal-inverse-gamma)"], ["gibbs", "Gibbs sampler (independent prior)"]], "conjugate"),
+                 sel("prior", "Prior on the slopes", [["gprior", "Zellner g-prior"], ["normal", "Normal, common s.d."]], "gprior"),
+                 num("g", "g (blank = number of observations)", ""), num("prior_sd", "Prior s.d. (normal prior)", 10),
+                 num("prior_mean", "Prior means of the slopes (blank = 0; one or a comma list)", ""),
+                 num("draws", "Draws (Gibbs)", 5000), num("burn", "Burn-in (Gibbs)", 1000), num("seed", "Random seed", 0)],
+         example=dict(file=MLD + "wage2.csv", spec=dict(y="lwage", x=["educ", "exper", "tenure", "IQ", "married", "black", "south", "urban"]))),
+    dict(id="bvar", group="Bayesian", name="Bayesian VAR (Minnesota, Normal-Wishart, ...)", guide=None, fn=bayes.bvar,
+         fields=[cols("vars", "Variables (Cholesky order)"), TIME, num("lags", "Lags", 4), BV_PRIOR] + HYP +
+                [num("delta", "Prior mean of own first lag (1 = random walk; one or a comma list)", 1),
+                 cols("block", "Block-exogenous variables (not affected by the others)", required=False),
+                 num("horizon", "IRF horizon", 20), num("fhorizon", "Forecast horizon", 8)] + DRAWS,
+         example=dict(file=TS + "money.csv", spec=dict(vars=["log_price", "log_m2", "log_gdp"], time="date", lags=4, prior="minnesota"))),
+    dict(id="favar", group="Bayesian", name="Factor-augmented VAR (FAVAR)", guide=None, fn=bayes.favar,
+         fields=[cols("y", "Observed VAR variables (policy variable last)"), cols("x", "Informational series (for the factors)"), TIME,
+                 num("factors", "Number of factors", 2), num("lags", "Lags", 2),
+                 sel("prior", "Prior", [["nw", "Normal-Wishart"], ["minnesota", "Minnesota"], ["inw", "Independent Normal-Wishart"], ["nd", "Normal-diffuse"]], "nw"),
+                 num("lambda1", "Overall tightness lambda1", 0.1), num("horizon", "IRF horizon", 20)] + DRAWS,
+         example=dict(file=OX + "us_macro.csv", spec=dict(y=["inflation", "unemp", "tbilrate"], time="date", factors=2,
+                                                          x=["gdp_growth", "cons_growth", "inv_growth", "gov_growth", "income_growth", "m1_growth"]))),
+    dict(id="mabvar", group="Bayesian", name="Mean-adjusted (steady-state) BVAR", guide=None, fn=bayes.mabvar,
+         fields=[cols("vars", "Variables (Cholesky order)"), TIME, num("lags", "Lags", 2),
+                 num("ss_mean", "Prior means of the steady states (comma list; blank = sample means)", ""),
+                 num("ss_sd", "Prior s.d. of the steady states (comma list; blank = sample s.d.)", ""),
+                 num("lambda1", "Overall tightness lambda1", 0.1), num("lambda2", "Cross-variable tightness lambda2", 0.5),
+                 num("horizon", "IRF horizon", 20), num("fhorizon", "Forecast horizon", 20)] + DRAWS,
+         example=dict(file=OX + "us_macro.csv", spec=dict(vars=["gdp_growth", "inflation", "tbilrate"], time="date", lags=2,
+                                                          ss_mean="3, 3.5, 5", ss_sd="0.5, 1, 1"))),
+    dict(id="pvar", group="Bayesian", name="Panel VAR (6 estimators)", guide=None, fn=pvar.pvar,
+         fields=[cols("vars", "Variables (Cholesky order)"), UNIT, PTIME, num("lags", "Lags", 1),
+                 sel("estimator", "Estimator", [["mg", "OLS mean group"], ["pooled", "Bayesian pooled"], ["zh", "Zellner-Hong random effects"],
+                                                ["hierarchical", "Hierarchical (Jarocinski)"], ["static", "Static factor (Canova-Ciccarelli)"],
+                                                ["dynamic", "Dynamic factor (Canova-Ciccarelli)"]], "mg"),
+                 num("lambda1", "lambda1 (pooled, Zellner-Hong)", 0.1), num("prior_var", "Prior variance of the factors", 1),
+                 num("horizon", "IRF horizon", 12)] + DRAWS,
+         example=dict(file=PD + "garrett.csv", spec=dict(vars=["gdp_growth", "unem"], unit="country", time="year", lags=1, estimator="mg"))),
+    dict(id="tvpvar", group="Bayesian", name="Time-varying parameter VAR (TVP-VAR)", guide=None, fn=statespace_var.tvpvar,
+         fields=[cols("vars", "Variables (Cholesky order)"), TIME, num("lags", "Lags", 2), num("training", "Training-sample length", 40),
+                 num("kQ", "kQ (amount of time variation)", 0.01), num("horizon", "IRF horizon", 20),
+                 num("draws", "Posterior draws", 500), num("burn", "Burn-in", 300), num("seed", "Random seed", 0)],
+         example=dict(file=OX + "us_macro.csv", spec=dict(vars=["inflation", "unemp", "tbilrate"], time="date", lags=2))),
+    dict(id="svvar", group="Bayesian", name="Stochastic-volatility VAR (SV-VAR)", guide=None, fn=statespace_var.svvar,
+         fields=[cols("vars", "Variables (Cholesky order)"), TIME, num("lags", "Lags", 2), num("lambda1", "Overall tightness lambda1", 0.1),
+                 num("lambda2", "Cross-variable tightness lambda2", 0.5), num("delta", "Prior mean of own first lag", 0),
+                 num("horizon", "IRF horizon", 20)] + DRAWS,
+         example=dict(file=OX + "us_macro.csv", spec=dict(vars=["inflation", "unemp", "tbilrate"], time="date", lags=2))),
+    dict(id="mfbvar", group="Bayesian", name="Mixed-frequency BVAR (monthly + quarterly)", guide=None, fn=statespace_var.mfbvar,
+         fields=[cols("monthly", "Monthly variables"), cols("quarterly", "Quarterly variables (value in the quarter's last month, other months blank)"),
+                 col("time", "Month column", required=False), num("lags", "Lags (months)", 5),
+                 sel("aggregation", "Quarterly aggregation", [["triangle", "Growth rates: triangle weights (1,2,3,2,1)/9"], ["average", "Levels: 3-month average"]], "triangle"),
+                 num("lambda1", "Overall tightness lambda1", 0.2), num("delta", "Prior mean of own first lag", 0), num("horizon", "IRF horizon", 24),
+                 num("draws", "Posterior draws", 300), num("burn", "Burn-in", 200), num("seed", "Random seed", 0)],
+         example=dict(file=OX + "mixed_frequency.csv", spec=dict(monthly=["ip_growth", "fedfunds"], quarterly=["gdp_growth"], time="date", lags=5))),
+    dict(id="tvar", group="Bayesian", name="Threshold VAR (Bayesian)", guide=None, fn=bayes.tvar,
+         fields=[cols("vars", "Variables (Cholesky order)"), col("threshold_var", "Threshold variable"), TIME, num("lags", "Lags", 2),
+                 num("max_delay", "Maximum delay d", 2), num("trim", "Minimum share in each regime", 0.15), num("grid", "Threshold grid points", 40),
+                 num("lambda1", "Overall tightness lambda1", 0.2), num("horizon", "IRF horizon", 20), num("draws", "Posterior draws", 1000), num("seed", "Random seed", 0)],
+         example=dict(file=OX + "us_macro.csv", spec=dict(vars=["gdp_growth", "inflation", "tbilrate"], threshold_var="gdp_growth", time="date", lags=2))),
+    # ------------------------------------------------------------------ Markov switching (no guide pages yet)
+    dict(id="ms_reg", group="Markov switching", name="Markov-switching regression", guide=None, fn=markov.ms_reg,
+         fields=[col("y", "Dependent variable"), cols("x", "Regressors (optional)", required=False), TIME, num("regimes", "Number of regimes", 2),
+                 sel("switching_variance", "Switching variance", [["yes", "Yes"], ["no", "No"]], "yes"),
+                 sel("switching_exog", "Switching slopes", [["yes", "Yes"], ["no", "No"]], "yes")],
+         example=dict(file=OX + "fedfunds.csv", spec=dict(y="fedfunds", time="date", switching_variance="no"))),
+    dict(id="ms_ar", group="Markov switching", name="Markov-switching autoregression (Hamilton)", guide=None, fn=markov.ms_ar,
+         fields=[col("y", "Variable"), TIME, num("regimes", "Number of regimes", 2), num("order", "AR order", 4),
+                 sel("switching_ar", "Switching AR coefficients", [["no", "No"], ["yes", "Yes"]], "no"),
+                 sel("switching_variance", "Switching variance", [["no", "No"], ["yes", "Yes"]], "no")],
+         example=dict(file=OX + "hamilton_gnp.csv", spec=dict(y="gnp_growth", time="date", order=4))),
+    dict(id="msvar", group="Markov switching", name="Markov-switching VAR", guide=None, fn=markov.msvar,
+         fields=[cols("vars", "Variables (Cholesky order)"), TIME, num("regimes", "Number of regimes", 2), num("lags", "Lags", 1),
+                 sel("switching", "What switches", [["MSIH", "MSIH: intercepts and covariances"], ["MSI", "MSI: intercepts only"],
+                                                     ["MSIAH", "MSIAH: intercepts, lags and covariances"]], "MSIH"),
+                 num("starts", "Starting values", 6), num("horizon", "IRF horizon", 20)],
+         example=dict(file=OX + "us_macro.csv", spec=dict(vars=["gdp_growth", "inflation"], time="date", lags=1, switching="MSIH"))),
+    dict(id="mspvar", group="Markov switching", name="Markov-switching panel VAR", guide=None, fn=markov.mspvar,
+         fields=[cols("vars", "Variables (Cholesky order)"), UNIT, PTIME, num("regimes", "Number of regimes", 2), num("lags", "Lags", 1),
+                 sel("switching", "What switches", [["MSIH", "MSIH: intercepts and covariances"], ["MSI", "MSI: intercepts only"],
+                                                     ["MSIAH", "MSIAH: intercepts, lags and covariances"]], "MSIH"),
+                 sel("demean", "Remove unit means", [["yes", "Yes"], ["no", "No"]], "yes"), num("starts", "Starting values", 6), num("horizon", "IRF horizon", 20)],
+         example=dict(file=PD + "garrett.csv", spec=dict(vars=["gdp_growth", "unem"], unit="country", time="year", lags=1, switching="MSIH"))),
+]
+
 BY_ID = {m["id"]: m for m in MODELS}
-GROUPS = ["Time series", "Panel data", "Causal inference", "Machine learning"]
+GROUPS = ["Time series", "Panel data", "Causal inference", "Machine learning", "Bayesian", "Markov switching"]
 
 
 def packages(model_id):
@@ -222,7 +314,7 @@ def packages(model_id):
     return ["scikit-learn", "xgboost"] if model_id == "xgb" else ["scikit-learn"]
 
 
-SLOW = {"dml_irm", "dml_iv", "causal_forest", "staggered"}
+SLOW = {"dml_irm", "dml_iv", "causal_forest", "staggered", "tvpvar", "mfbvar", "svvar"}
 
 
 def catalog():

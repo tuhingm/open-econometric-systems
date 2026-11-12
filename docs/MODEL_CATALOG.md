@@ -1,6 +1,6 @@
 # OES model catalogue
 
-All 31 models below are implemented in `oes-engine` and run in the browser at
+All 44 models below are implemented in `oes-engine` and run in the browser at
 <https://tuhingm.github.io/almamun/oes/>. `oes_engine.catalog()` is the machine-readable version (input fields,
 guide page, example dataset, Pyodide packages).
 
@@ -37,6 +37,19 @@ guide page, example dataset, Pyodide packages).
 | `dml_irm` | Double ML, interactive | ml-guide/dml-irm | guide cross-fitting | simulation |
 | `dml_iv` | Double ML, partially linear IV | ml-guide/dml-iv | guide cross-fitting | simulation |
 | `causal_forest` | Causal forest (DR-learner forest) | ml-guide/causal-forest | AIPW scores + random forest | simulation (heterogeneity found) |
+| `bayes_reg` | Bayesian linear regression | — | NIG conjugate or Gibbs | OLS limit, g-prior shrinkage g/(1+g) |
+| `bvar` | BVAR (Minnesota, NW, INW, ND; block exogeneity) | — | BEAR formulas; Gibbs for INW/ND | OLS limit, prior limit, analytic posterior, Monte Carlo marginal likelihood |
+| `favar` | FAVAR | — | two-step PCA + BVAR (Bernanke, Boivin and Eliasz 2005) | principal components |
+| `mabvar` | Mean-adjusted BVAR | — | Villani (2009) Gibbs | simulated steady state; tight-prior limit |
+| `pvar` | Panel VAR (6 estimators) | — | BEAR chapter 4 | mean group, pooled OLS limit, simulated persistence |
+| `tvpvar` | TVP-VAR | — | random-walk coefficients, Carter-Kohn | simulated break |
+| `svvar` | SV-VAR | — | Cogley-Sargent, KSC mixture | simulated volatility rise |
+| `mfbvar` | Mixed-frequency BVAR | — | monthly state space, quarterly aggregation | simulated latent months |
+| `tvar` | Threshold BVAR | — | NW marginal likelihood on a threshold/delay grid | simulated threshold and delay |
+| `ms_reg` | Markov-switching regression | — | statsmodels | Stata mswitch manual |
+| `ms_ar` | Markov-switching AR | — | statsmodels | Hamilton (1989) |
+| `msvar` | Markov-switching VAR | — | EM (Hamilton filter, Kim smoother) | statsmodels likelihood; simulation |
+| `mspvar` | Markov-switching panel VAR | — | EM with a common regime path | simulation |
 
 Notes
 - The causal forest is a doubly robust forest, not EconML's `CausalForestDML` (EconML does not run in Pyodide).

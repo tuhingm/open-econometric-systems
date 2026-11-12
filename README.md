@@ -2,12 +2,12 @@
 
 A free, open-source econometric workspace. It runs every model of the four research guides on
 [tuhingm.github.io/almamun](https://tuhingm.github.io/almamun/) — time series, panel data, causal inference and
-machine learning — on the user's own data, **inside the browser**. Nothing is installed and the data never leave the
+machine learning — plus Bayesian VARs and Markov-switching models, on the user's own data, **inside the browser**. Nothing is installed and the data never leave the
 user's computer.
 
 **Use it:** <https://tuhingm.github.io/almamun/oes/>
 
-## Models (31)
+## Models (44)
 
 | Group | Models |
 |---|---|
@@ -15,6 +15,11 @@ user's computer.
 | Panel data | Pooled OLS · Fixed effects · Random effects · First differences · FE with Driscoll-Kraay errors · Difference GMM · Mean group / CCE-MG · PMG / MG / DFE · CS-ARDL |
 | Causal inference | Difference-in-differences · Staggered DiD (Callaway-Sant'Anna) · Interrupted time series · IV (2SLS) · Regression discontinuity · Synthetic control · Generalized synthetic control |
 | Machine learning | LASSO · Ridge · Elastic net · Random forest · XGBoost · Double ML (partially linear, interactive, IV) · Causal forest |
+| Bayesian | Bayesian linear regression (exact or Gibbs) · BVAR with Minnesota, Normal-Wishart, Independent Normal-Wishart or Normal-diffuse priors and block exogeneity · FAVAR · Mean-adjusted (steady-state) BVAR · Panel VAR (OLS mean group, Bayesian pooled, Zellner-Hong, hierarchical, static factor, dynamic factor) · TVP-VAR · Stochastic-volatility VAR · Mixed-frequency BVAR · Threshold BVAR |
+| Markov switching | Markov-switching regression · Markov-switching AR (Hamilton) · Markov-switching VAR (MSI, MSIH, MSIAH) · Markov-switching panel VAR |
+
+The Bayesian VARs follow the ECB's BEAR toolbox (Dieppe, Legrand and van Roye 2016). The Bayesian and Markov-switching
+groups have no guide pages on the website yet.
 
 DSGE models are not included: they are solved and estimated in Dynare (see the DSGE Guide).
 
@@ -47,7 +52,7 @@ differences, logs, growth rates, cross-sectional demeaning, sample restriction) 
 
 ## Testing
 
-`oes-engine/tests/test_models.py` (77 tests) checks that every model runs on its guide example and compares the
+`oes-engine/tests/` (118 tests) checks that every model runs on its guide example and compares the
 estimates with reference implementations and published results:
 
 - OLS, VAR and VECM against statsmodels; 2SLS and GMM (all covariance options, Hansen J) against linearmodels;
@@ -55,7 +60,10 @@ estimates with reference implementations and published results:
   effects and first differences against linearmodels, to its small-sample scaling;
 - difference GMM against Arellano and Bond (1991); the ARDL bounds test and long-run coefficients against the guide;
 - 2SLS (Card) and two-way fixed effects against linearmodels; DiD, double ML (PLR, IRM, IV), CS-ARDL and the causal
-  forest on simulated data with known effects; LASSO and the XGBoost wrapper against scikit-learn and xgboost.
+  forest on simulated data with known effects; LASSO and the XGBoost wrapper against scikit-learn and xgboost;
+- Markov-switching regression and AR against Stata's `mswitch` manual and Hamilton (1989); the MS-VAR likelihood
+  against statsmodels; BVARs against the OLS VAR (loose prior), the prior (tight prior) and a Monte Carlo marginal
+  likelihood; TVP-, SV-, mixed-frequency, threshold, steady-state and panel VARs on simulated data with known features.
 
 ```bash
 cd oes-engine
