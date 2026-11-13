@@ -60,8 +60,40 @@ def pvar(df, spec):
     fn = {"mg": _mg, "pooled": _pooled, "zh": _zh, "hierarchical": _hier, "static": _factor, "dynamic": _factor}[est]
     out = fn(units, ids, times, names, p, h, ndraw, burn, rng, spec, dynamic=(est == "dynamic"))
     tabs, charts, summary, notes, nobs = out
+    tabs[:0] = _panel_pretests(units, names, p)
     summary = [stat("Estimator", EST[est]), stat("Lags", p)] + summary
     return result("pvar", f"Panel VAR: {EST[est]}", nobs, summary, tabs, charts, notes)
+
+
+def _panel_pretests(units, names, p):
+    """Panel unit roots (Maddala-Wu Fisher ADF), cross-sectional dependence (Pesaran CD) and lag choice by pooled BIC."""
+    from . import _panel_tests as PT
+    from .core import test_row, tests_table
+    rows = []
+    for i, v in enumerate(names):
+        W = pd.DataFrame({u: Y[:, i] for u, Y in enumerate(units)})
+        fa = PT._fisher_adf(W, 4)
+        if fa:
+            rows.append(test_row(f"Fisher ADF (Maddala-Wu): {v}", fa["P"], fa["P_p"], f"{fa['n']} units; H0: all units have a unit root"))
+        cd, pcd, rr = PT._cd(W.to_numpy(float))
+        if cd is not None:
+            rows.append(test_row(f"Pesaran CD: {v}", cd, pcd, f"mean |rho| = {f(rr, 3)}; H0: cross-sectional independence"))
+    out = [tests_table(rows, "Panel unit-root and cross-sectional dependence tests",
+                       "Stationary series are needed for a panel VAR in levels; strong cross-sectional dependence favours the factor estimators, which model spillovers between units.")]
+    bic = []
+    for q in range(1, 5):
+        data = _unit_data(units, q)
+        if not data:
+            continue
+        Yt = np.vstack([d[0][4 - q:] if len(d[0]) > 4 - q else d[0] for d in data]); X = np.vstack([d[1][4 - q:] if len(d[1]) > 4 - q else d[1] for d in data])
+        B = np.linalg.lstsq(X, Yt, rcond=None)[0]
+        E = Yt - X @ B
+        S = E.T @ E / len(E)
+        bic.append([q, f(np.linalg.slogdet(S)[1] + np.log(len(E)) * B.size / len(E), 4)])
+    if bic:
+        best = min(bic, key=lambda r: r[1])[0]
+        out.append(table("Lag order: BIC of the pooled VAR (common sample)", ["Lags", "BIC (lower is better)"], bic, f"BIC prefers {best} lag(s); the model uses {p}."))
+    return out
 
 
 def _unit_data(units, p):
@@ -93,7 +125,11 @@ def _mg(units, ids, times, names, p, h, ndraw, burn, rng, spec, dynamic=False):
         m, s = Bs[:, :, i].mean(0), Bs[:, :, i].std(0, ddof=1) / np.sqrt(N)
         tabs.append(table(f"Mean-group equation: {v}", ["Regressor", "Mean", "Std. err.", "z", "Min over units", "Max over units"],
                           [[r, f(m[j]), f(s[j]), f(m[j] / s[j], 4), f(Bs[:, j, i].min()), f(Bs[:, j, i].max())] for j, r in enumerate(rn)]))
+    from .diagnostics import resid_tests, fevd_table
+    E = np.vstack([Yt - X @ B for (Yt, X), B in zip(data, Bs)])
+    tabs.append(resid_tests(E, names, title="Residual diagnostics (unit VARs, pooled residuals)"))
     I = np.array([irf(Bs[u], Ss[u], n, p, h) for u in range(N)])
+    tabs.append(fevd_table(I, names))
     charts = irf_charts(I, names, h)
     for c in charts:
         c["title"] += " (median and 16-84% range across units)"
@@ -111,7 +147,10 @@ def _pooled(units, ids, times, names, p, h, ndraw, burn, rng, spec, dynamic=Fals
     B0, Phi0, S0, a0 = nw_prior(n, p, sig, lam1, 1.0, 100.0, 0.0)
     Bs, Ss = nw_draws(*nw_posterior(Yt, X, B0, Phi0, S0, a0), ndraw, rng)
     tabs = [post_table(f"Pooled equation: {v}", reg_names(names, p), Bs[:, :, i]) for i, v in enumerate(names)]
+    from .diagnostics import resid_tests, fevd_table
+    tabs.append(resid_tests(Yt - X @ Bs.mean(0), names, title="Residual diagnostics (pooled VAR, posterior mean)"))
     I = np.array([irf(Bs[q], Ss[q], n, p, h) for q in range(ndraw)])
+    tabs.append(fevd_table(I, names))
     notes = [f"One VAR for all units (homogeneous coefficients and constants), Normal-Wishart prior with Minnesota scale (lambda1 = {lam1:g}, own-lag prior mean 0)."]
     return tabs, irf_charts(I, names, h), [stat("Units", len(data)), stat("Pooled observations", len(Yt))], notes, len(Yt)
 
@@ -143,6 +182,9 @@ def _zh(units, ids, times, names, p, h, ndraw, burn, rng, spec, dynamic=False):
     tabs.append(table("Own first-lag coefficient by unit (posterior mean)", ["Unit"] + names,
                       [[ids[u]] + [f(own[i][u]) for i in range(n)] for u in range(len(data))]))
     Sig = s2 * np.eye(n)
+    from .diagnostics import resid_tests
+    tabs.append(resid_tests(np.vstack([Yi - Xi @ m.reshape((k, n), order="F") for (Yi, Xi), m in zip(data, unit_means)]), names,
+                            title="Residual diagnostics (unit posterior means, pooled residuals)"))
     I = np.array([irf(Bm[q], Sig, n, p, h) for q in range(ndraw)])
     notes = [f"Zellner-Hong (1989): beta_i ~ N(b, lambda1 I) with b the pooled OLS estimate and a common residual variance sigma^2 I "
              f"(sigma^2 = {s2:.4g}); lambda1 = {lam1:g} sets how strongly units are shrunk towards the pool. Responses use sigma^2 I (one-s.d. shocks)."]
@@ -187,6 +229,9 @@ def _hier(units, ids, times, names, p, h, ndraw, burn, rng, spec, dynamic=False)
     Bm = keep_b.reshape((ndraw, k, n), order="F")
     tabs = [post_table(f"Hierarchical mean equation (b): {v}", reg_names(names, p), Bm[:, :, i]) for i, v in enumerate(names)]
     tabs.append(post_table("Overall shrinkage", ["lambda1"], keep_lam[:, None], "Small lambda1: units are similar and are pooled; large lambda1: units differ."))
+    from .diagnostics import mcmc_table
+    rn_ = reg_names(names, p)
+    tabs.append(mcmc_table(np.column_stack([keep_b, keep_lam]), [f"b {names[i]}: {r}" for i in range(n) for r in rn_] + ["lambda1"]))
     tabs.append(table("Own first-lag coefficient by unit (posterior mean)", ["Unit"] + names,
                       [[ids[u]] + [f(keep_unit[u, i * k + 1 + i]) for i in range(n)] for u in range(N)]))
     Sig = np.mean(Sigs, axis=0)
@@ -264,6 +309,8 @@ def _factor(units, ids, times, names, p, h, ndraw, burn, rng, spec, dynamic=Fals
     thmean = keep_th.mean(1) if dynamic else keep_th
     tabs.append(post_table("Factors" + (" (averaged over time)" if dynamic else ""), fnames, thmean,
                            "Each coefficient of the panel VAR is the sum of the factors that apply to it (see the notes)."))
+    from .diagnostics import mcmc_table
+    tabs.append(mcmc_table(np.column_stack([thmean, keep_s2]), fnames + [f"sigma2 {ids[e // n]}:{names[e % n]}" for e in range(m)]))
 
     def coef_matrix(th):
         """Implied (m p) x m coefficient matrix from factor values th."""

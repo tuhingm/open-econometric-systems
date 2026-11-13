@@ -11,6 +11,12 @@ from oes_engine import bayes as B, markov as M
 from test_models import frame, rows
 
 
+def T(r, prefix):
+    """The first result table whose title starts with prefix."""
+    assert "error" not in r, r.get("error")
+    return next(t for t in r["tables"] if t["title"].startswith(prefix))
+
+
 def _sim_var(T=400, A=((0.5, 0.1), (0.0, 0.6)), c=(1.0, -0.5), seed=0, S=None):
     rng = np.random.default_rng(seed)
     A, c = np.array(A), np.array(c)
@@ -50,7 +56,7 @@ def test_nw_bvar_with_a_loose_prior_is_the_ols_var():
     d, s = frame("bvar")
     r = E.run("bvar", d, dict(s, prior="nw", lambda1=1e4, lambda4=1e6, draws=200))
     ref = VAR(d[s["vars"]].reset_index(drop=True)).fit(4)
-    eq = rows(r["tables"][0])
+    eq = rows(T(r, "Equation:"))
     for name, val in ref.params[s["vars"][0]].items():
         assert eq[name][1] == pytest.approx(val, abs=0.02 * (1 + abs(val)))
 
@@ -58,7 +64,7 @@ def test_nw_bvar_with_a_loose_prior_is_the_ols_var():
 def test_minnesota_with_a_tight_prior_is_the_prior():
     d, s = frame("bvar")
     r = E.run("bvar", d, dict(s, prior="minnesota", lambda1=1e-6, draws=200))
-    eq = rows(r["tables"][0])
+    eq = rows(T(r, "Equation:"))
     assert eq["L1.log_price"][1] == pytest.approx(1.0, abs=1e-4)
     assert eq["L1.log_m2"][1] == pytest.approx(0.0, abs=1e-4)
 
@@ -109,18 +115,32 @@ def test_favar_factors_are_principal_components():
     Xs = d[s["x"]].to_numpy(float)
     Xs = (Xs - Xs.mean(0)) / Xs.std(0, ddof=1)
     ev = np.linalg.eigvalsh(np.cov(Xs.T))[::-1]
-    assert r["tables"][0]["rows"][0][1] == pytest.approx(ev[0] / ev.sum(), abs=1e-4)
+    assert T(r, "Principal-component").get("rows")[0][1] == pytest.approx(ev[0] / ev.sum(), abs=1e-4)
+
+
+def test_favar_loadings_r_squared_is_the_ols_r_squared():
+    import statsmodels.api as sm
+    d, s = frame("favar")
+    r = E.run("favar", d, s)
+    t = T(r, "Responses of the informational series")
+    Xs = d[s["x"]].to_numpy(float)
+    Xs = (Xs - Xs.mean(0)) / Xs.std(0, ddof=1)
+    F = np.linalg.svd(Xs, full_matrices=False)[0][:, :s["factors"]]
+    Z = np.column_stack([F, d[s["y"]].to_numpy(float)])
+    for row, j in zip(t["rows"], range(Xs.shape[1])):
+        assert 0 <= row[4] <= 1
+        assert row[4] == pytest.approx(sm.OLS(Xs[:, j], sm.add_constant(Z)).fit().rsquared, abs=2e-3)
 
 
 def test_mean_adjusted_bvar_recovers_the_steady_state():
     df = _sim_var(c=(1.0, -0.5))
     mu = np.linalg.solve(np.eye(2) - np.array(((0.5, 0.1), (0.0, 0.6))), [1.0, -0.5])
     r = E.run("mabvar", df, dict(vars=["y0", "y1"], lags=1, ss_mean="0, 0", ss_sd="10, 10", draws=1500, burn=500))
-    t = r["tables"][0]["rows"]
+    t = T(r, "Steady states")["rows"]
     for i in range(2):
         assert abs(t[i][1] - mu[i]) < 3 * t[i][2] + 0.05
     tight = E.run("mabvar", df, dict(vars=["y0", "y1"], lags=1, ss_mean="5, 5", ss_sd="0.001, 0.001", draws=500, burn=200))
-    assert tight["tables"][0]["rows"][0][1] == pytest.approx(5, abs=0.01)
+    assert T(tight, "Steady states")["rows"][0][1] == pytest.approx(5, abs=0.01)
 
 
 def test_threshold_var_finds_the_threshold():
@@ -141,7 +161,7 @@ def test_threshold_var_finds_the_threshold():
 def test_tvp_var_detects_a_shift_in_the_constant():
     df = pd.concat([_sim_var(T=150, c=(0.0, 0.0), seed=1), _sim_var(T=150, c=(2.0, 0.0), seed=2)], ignore_index=True)
     r = E.run("tvpvar", df, dict(vars=["y0", "y1"], lags=1, training=40, kQ=0.05, draws=300, burn=200))
-    t = next(row for row in r["tables"][0]["rows"] if row[0] == "y0" and row[1] == "const")
+    t = next(row for row in T(r, "Coefficients at the start")["rows"] if row[0] == "y0" and row[1] == "const")
     assert t[3] - t[2] > 1.0 and t[5] > 0.95
 
 
@@ -179,7 +199,7 @@ def test_panel_var_mean_group_is_the_average_of_unit_vars():
     for _, g in d.sort_values(["country", "year"]).groupby("country"):
         Yt, X = B.lagmat(g[s["vars"]].to_numpy(float), 1)
         Bs.append(np.linalg.lstsq(X, Yt, rcond=None)[0])
-    t = rows(r["tables"][0])
+    t = rows(T(r, "Mean-group equation"))
     assert t["L1.gdp_growth"][1] == pytest.approx(np.mean(Bs, 0)[1, 0], abs=1e-5)
 
 
@@ -191,7 +211,7 @@ def test_pooled_panel_var_with_a_loose_prior_is_pooled_ols():
         Yt, X = B.lagmat(g[s["vars"]].to_numpy(float), 1)
         Ys.append(Yt); Xs.append(X)
     ols = np.linalg.lstsq(np.vstack(Xs), np.vstack(Ys), rcond=None)[0]
-    t = rows(r["tables"][0])
+    t = rows(T(r, "Pooled equation"))
     assert t["L1.gdp_growth"][1] == pytest.approx(ols[1, 0], abs=0.01)
 
 
@@ -208,9 +228,9 @@ def test_panel_var_estimators_recover_persistence(est):
     r = E.run("pvar", df, dict(vars=["a", "b"], unit="u", time="t", lags=1, estimator=est, draws=400, burn=300))
     assert "error" not in r, r.get("error")
     if est in ("zh", "hierarchical"):
-        assert rows(r["tables"][0])["L1.a"][1] == pytest.approx(0.6, abs=0.12)
+        assert rows(T(r, "Average unit equation" if est == "zh" else "Hierarchical mean"))["L1.a"][1] == pytest.approx(0.6, abs=0.12)
     else:
-        f_ = rows(r["tables"][0])
+        f_ = rows(T(r, "Factors"))
         own = sum(f_[k][1] for k in f_ if k in ("common", "own lag", "same unit (domestic)", "lag 1"))
         unit_var = np.mean([f_[k][1] for k in f_ if k.startswith("unit:")]) + np.mean([f_[k][1] for k in f_ if k.startswith("variable:")])
         assert own + unit_var == pytest.approx(0.6, abs=0.15)
@@ -220,7 +240,7 @@ def test_panel_var_estimators_recover_persistence(est):
 def test_ms_regression_reproduces_stata_mswitch():
     r = E.BY_ID["ms_reg"]
     out = E.run("ms_reg", *_ex("ms_reg"))
-    t = rows(out["tables"][0])
+    t = rows(T(out, "Parameter estimates"))
     # Stata 14 manual, mswitch dr: p11 = .9820939, p21 = .0503587, mu1 = 3.70877, mu2 = 9.556793, sigma = 2.107562
     assert t["p[0->0]"][1] == pytest.approx(0.9820939, abs=1e-4)
     assert t["const[0]"][1] == pytest.approx(3.70877, abs=1e-3)
@@ -230,7 +250,7 @@ def test_ms_regression_reproduces_stata_mswitch():
 
 def test_ms_ar_reproduces_hamilton_1989():
     out = E.run("ms_ar", *_ex("ms_ar"))
-    t = rows(out["tables"][0])
+    t = rows(T(out, "Parameter estimates"))
     assert t["const[0]"][1] == pytest.approx(-0.358811, abs=1e-3)
     assert t["const[1]"][1] == pytest.approx(1.163516, abs=1e-3)
     assert t["ar.L1"][1] == pytest.approx(0.013486, abs=1e-3)
@@ -279,8 +299,9 @@ def test_msvar_recovers_simulated_regimes():
     (y,), st = _sim_msvar()
     df = pd.DataFrame(y, columns=["a", "b"])
     r = E.run("msvar", df, dict(vars=["a", "b"], lags=1, switching="MSIH"))
-    t = rows(r["tables"][0])
-    assert t["a"][1] == pytest.approx(-1.0, abs=0.25) and t["a"][2] == pytest.approx(2.0, abs=0.25)
+    t = rows(T(r, "Regime-dependent intercepts"))
+    assert t["a, regime 0"][1] == pytest.approx(-1.0, abs=0.25) and t["a, regime 1"][1] == pytest.approx(2.0, abs=0.25)
+    assert 0 < t["a, regime 0"][2] < 0.5                                   # Hessian standard errors are finite and sensible
     prob1 = np.array(r["charts"][0]["series"][1]["y"])
     assert np.mean((prob1 > 0.5) == (st[1:] == 1)) > 0.9
 
@@ -291,4 +312,35 @@ def test_ms_panel_var_recovers_common_regimes():
     r = E.run("mspvar", df, dict(vars=["a", "b"], unit="u", time="t", lags=1, switching="MSIH", demean="no"))
     prob1 = np.array(r["charts"][0]["series"][1]["y"])
     assert np.mean((prob1 > 0.5) == (st[1:] == 1)) > 0.95
-    one = E.run("mspvar", df[df.u == 0], dict(vars=["a", "b"], unit="u", time="t", lags=1, demean="no")) if False else None
+
+
+def test_markov_paper_tables():
+    out = E.run("ms_ar", _ex("ms_ar")[0], dict(_ex("ms_ar")[1], reference="nber_recession"))
+    titles = [t["title"] for t in out["tables"]]
+    for need_ in ("Unit-root tests", "Number of regimes", "Linearity", "Regime classification", "Regime dating", "Residual diagnostics", "Comparison with"):
+        assert any(t_.startswith(need_) for t_ in titles), need_
+    conc = rows(T(out, "Comparison with"))
+    assert conc["Concordance (share of periods classified alike)"][1] > 0.85           # Hamilton's regimes track NBER recessions
+
+
+def test_msvar_hessian_standard_errors_match_statsmodels():
+    text, _ = _ex("ms_reg")
+    ff = pd.read_csv(__import__("io").StringIO(text))
+    r = E.run("msvar", ff, dict(vars=["fedfunds"], time="date", lags=0, switching="MSI", starts=8))
+    t = rows(T(r, "Regime-dependent intercepts"))
+    ref = sm.tsa.MarkovRegression(ff.fedfunds, k_regimes=2).fit(disp=False)
+    # same model; at nearly the same optimum the standard errors agree (Stata: .1767 and .3000)
+    assert t["fedfunds, regime 0"][2] == pytest.approx(ref.bse[2], rel=0.1)
+    assert t["fedfunds, regime 1"][2] == pytest.approx(ref.bse[3], rel=0.1)
+
+
+def test_bvar_paper_tables():
+    d, s = frame("bvar")
+    r = E.run("bvar", d, dict(s, prior="inw", draws=300, burn=200, lags=2))
+    titles = [t["title"] for t in r["tables"]]
+    for need_ in ("Unit-root tests", "Lag order", "Overall tightness", "MCMC convergence", "Residual diagnostics", "Forecast-error variance",
+                  "Out-of-sample forecast", "Prior sensitivity", "Stability"):
+        assert any(t_.startswith(need_) for t_ in titles), need_
+    fe = T(r, "Forecast-error variance")
+    for row in fe["rows"]:
+        assert sum(row[2:]) == pytest.approx(100, abs=2)          # medians of shares need not add to exactly 100

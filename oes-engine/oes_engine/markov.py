@@ -5,6 +5,8 @@ msvar and mspvar are estimated here by the EM algorithm (Hamilton 1990; Krolzig 
 smoother and weighted least squares. The panel version shares one regime path across all units (synchronised
 regimes) with pooled regime-dependent coefficients; the likelihood of a period is the product over units.
 """
+import math
+
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -40,12 +42,15 @@ def _ms_tables(res, k, labels, y, names_y):
     return tabs, charts, sm_
 
 
-def _fit(mod, rng_seed=0):
+def _fit(mod, rng_seed=0, quick=False):
     np.random.seed(rng_seed)
     best = None
-    for kw in ({}, {"search_reps": 20}):
+    import warnings
+    for kw in (({},) if quick else ({}, {"search_reps": 20})):
         try:
-            r = mod.fit(disp=False, **kw)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                r = mod.fit(disp=False, **kw)
             if best is None or (np.isfinite(r.llf) and r.llf > best.llf + 1e-6):
                 best = r
         except Exception:
@@ -53,6 +58,72 @@ def _fit(mod, rng_seed=0):
     if best is None:
         raise OESError("The Markov-switching model could not be estimated; try fewer regimes or fewer switching parameters.")
     return best
+
+
+def _ref_spec(spec, df):
+    ref = spec.get("reference")
+    if ref in (None, ""):
+        return None
+    if ref not in df.columns:
+        raise OESError(f"Reference column {ref} not found.")
+    return ref
+
+
+def _sm_paper_tables(res, mod_factory, y, labels, kmax, ref=None, refvals=None):
+    """Unit roots, number of regimes (k = 1..kmax), regime classification, dating, residual and reference checks."""
+    from . import diagnostics as D
+    pre, post = [D.unit_roots(np.asarray(y, float)[:, None], ["y"])], []
+    pre[0]["rows"][0][0] = "dependent variable"
+    rows = []
+    for k_ in range(1, kmax + 1):
+        try:
+            if k_ == 1:
+                r_ = mod_factory(1)
+            else:
+                r_ = res if k_ == res.model.k_regimes else _fit(mod_factory(k_), quick=True)
+            rows.append([k_, f(r_.llf, 3), f(r_.aic, 3), f(r_.bic, 3), f(r_.hqic, 3)])
+        except Exception:
+            rows.append([k_, None, None, None, None])
+    ok = [r_ for r_ in rows if r_[2] is not None]
+    lin = ok[0] if ok and ok[0][0] == 1 else None
+    pre.append(table("Number of regimes: information criteria", ["Regimes", "Log-likelihood", "AIC", "BIC", "HQIC"], rows,
+                     "Regimes = 1 is the linear model. Under the null of no switching some parameters are unidentified, so a standard LR test "
+                     "is not valid (Hansen 1992; Garcia 1998): compare models with the criteria and with the economic meaning of the regimes."))
+    if lin and len(ok) > 1:
+        two = [r_ for r_ in ok if r_[0] == res.model.k_regimes][0]
+        pre.append(table("Linearity: likelihood-ratio statistic", ["Statistic", "Value"],
+                         [["LR = 2 (logL switching - logL linear)", f(2 * (two[1] - lin[1]), 3)],
+                          ["Garcia (1998) 5% critical value, two-regime models (approximate)", "about 14"],
+                          ["Davies upper-bound p-value", f(_davies(2 * (two[1] - lin[1]), max(int(res.model.k_params) - 2, 1)), 4)]],
+                         "A large LR (well above the Garcia critical value) rejects the linear model."))
+    sm_ = np.asarray(res.smoothed_marginal_probabilities)
+    if sm_.ndim == 1:
+        sm_ = np.column_stack([sm_, 1 - sm_])
+    lab = labels[-len(sm_):]
+    post.append(table("Regime classification", ["Measure", "Value"], [["Regime classification measure, RCM (Ang and Bekaert 2002)", f(D.rcm(sm_), 2)]],
+                      "RCM = 0: every period is assigned to a regime with certainty; RCM = 100: no information. Below about 30 is a sharp classification."))
+    post.append(D.regime_dates(sm_, lab))
+    fv = np.asarray(res.fittedvalues, float)
+    m_ = min(len(sm_), len(fv))
+    resid = np.asarray(y, float)[-m_:] - fv[-m_:]
+    post.append(D.resid_tests(resid[:, None], ["residual"], title="Residual diagnostics (observed minus regime-weighted fit)"))
+    if ref is not None:
+        r_ = np.asarray(refvals, float)[-len(sm_):]
+        best = max(range(sm_.shape[1]), key=lambda j: (((sm_[:, j] > .5) == (r_ > .5)).mean()))
+        post.append(table(f"Comparison with {ref} (regime {best})", ["Measure", "Value"], D.concordance(sm_, r_, best)))
+    return pre, post
+
+
+def _refcol(df, d, ref):
+    if ref is None:
+        return None
+    return pd.to_numeric(df.loc[d.index, ref], errors="coerce").fillna(0).to_numpy()
+
+
+def _davies(lr, q):
+    """Davies (1987) upper bound for a test with q nuisance parameters unidentified under the null (one-dimensional)."""
+    lr = max(lr, 1e-12)
+    return float(min(1.0, stats.chi2.sf(lr, q) + lr ** ((q - 1) / 2) * np.exp(-lr / 2) * 2 ** (-q / 2) / math.gamma(q / 2)))
 
 
 def ms_reg(df, spec):
@@ -69,6 +140,16 @@ def ms_reg(df, spec):
                                   switching_exog=sx, switching_variance=sv)
     res = _fit(mod)
     tabs, charts, _ = _ms_tables(res, k, labels, d[y].to_numpy(float), y)
+    ref = _ref_spec(spec, df)
+    yy = d[y].astype(float).reset_index(drop=True)
+    ex = d[x].astype(float).reset_index(drop=True) if x else None
+
+    def factory(kk):
+        if kk == 1:
+            return sm.OLS(yy, sm.add_constant(ex) if x else np.ones(len(yy))).fit()
+        return sm.tsa.MarkovRegression(yy, k_regimes=kk, trend="c", exog=ex, switching_exog=sx, switching_variance=sv)
+    pre, post = _sm_paper_tables(res, factory, yy.to_numpy(), labels, min(3, k + 1), ref, _refcol(df, d, ref))
+    tabs = pre + tabs + post
     summary = [stat("Observations", int(res.nobs)), stat("Regimes", k), stat("Log-likelihood", res.llf, 3), stat("AIC", res.aic, 3), stat("BIC", res.bic, 3)]
     notes = [f"Markov-switching regression (Hamilton 1989) with a switching constant" + (", switching slopes" if x and sx else "")
              + (" and switching variance" if sv else "") + "; maximum likelihood (EM, then quasi-Newton), standard errors from the Hessian."]
@@ -86,6 +167,16 @@ def ms_ar(df, spec):
     mod = sm.tsa.MarkovAutoregression(d[y].astype(float).reset_index(drop=True), k_regimes=k, order=order, switching_ar=sa, switching_variance=sv)
     res = _fit(mod)
     tabs, charts, sm_ = _ms_tables(res, k, labels, d[y].to_numpy(float), y)
+    ref = _ref_spec(spec, df)
+    yy = d[y].astype(float).reset_index(drop=True)
+
+    def factory(kk):
+        if kk == 1:
+            from statsmodels.tsa.ar_model import AutoReg
+            return AutoReg(yy, lags=order, trend="c").fit()
+        return sm.tsa.MarkovAutoregression(yy, k_regimes=kk, order=order, switching_ar=sa, switching_variance=sv)
+    pre, post = _sm_paper_tables(res, factory, yy.to_numpy(), labels, min(3, k + 1), ref, _refcol(df, d, ref))
+    tabs = pre + tabs + post
     summary = [stat("Observations", int(res.nobs)), stat("Regimes", k), stat("AR order", order), stat("Log-likelihood", res.llf, 3),
                stat("AIC", res.aic, 3), stat("BIC", res.bic, 3)]
     notes = ["Hamilton's (1989) Markov-switching autoregression: the regime shifts the mean of the series (the AR part applies to "
@@ -242,12 +333,96 @@ def _linear_llf(units):
     return float(_mvn_logpdf(E, S).sum()), B.size + n * (n + 1) // 2
 
 
-def _ms_output(model_id, title, fit, names, p, K, kind, labels, units, extra_notes, h=20):
+def _pack(fit, K, kind, n, q):
+    th = [np.concatenate(fit["nu"])]
+    th += [fit["A"][j].flatten("F") for j in range(K)] if kind == "MSIAH" else [fit["A"][0].flatten("F")]
+    for j in range(K if kind != "MSI" else 1):
+        L = np.linalg.cholesky(fit["S"][j])
+        th.append(np.r_[np.log(np.diag(L)), L[np.tril_indices(n, -1)]])
+    P = np.clip(fit["P"], 1e-8, 1)
+    th.append(np.log(P[:, :-1] / P[:, [-1]]).ravel())
+    return np.concatenate(th)
+
+
+def _unpack(th, K, kind, n, q):
+    i = 0
+    nu = [th[i + j * n:i + (j + 1) * n] for j in range(K)]; i += K * n
+    nA = K if kind == "MSIAH" else 1
+    A = [th[i + j * q * n:i + (j + 1) * q * n].reshape((q, n), order="F") for j in range(nA)]; i += nA * q * n
+    if nA == 1:
+        A = A * K
+    S = []
+    m = n + n * (n - 1) // 2
+    for j in range(K if kind != "MSI" else 1):
+        v = th[i:i + m]; i += m
+        L = np.zeros((n, n)); L[np.diag_indices(n)] = np.exp(v[:n]); L[np.tril_indices(n, -1)] = v[n:]
+        S.append(L @ L.T)
+    if len(S) == 1:
+        S = S * K
+    lg = th[i:i + K * (K - 1)].reshape(K, K - 1)
+    E_ = np.exp(np.column_stack([lg, np.zeros(K)]))
+    return nu, A, S, E_ / E_.sum(1, keepdims=True)
+
+
+def _ms_llf(th, units, K, kind, n, q):
+    nu, A, S, P = _unpack(th, K, kind, n, q)
+    T = units[0][0].shape[0]
+    logf = np.zeros((T, K))
+    for (Y, X) in units:
+        for j in range(K):
+            logf[:, j] += _mvn_logpdf(Y - nu[j] - (X @ A[j] if q else 0), S[j])
+    mx = logf.max(1, keepdims=True)
+    fd = np.exp(logf - mx)
+    w, vec = np.linalg.eig(P.T)
+    prev = np.abs(np.real(vec[:, np.argmin(np.abs(w - 1))])); prev /= prev.sum()
+    ll = 0.0
+    for t in range(T):
+        num = (prev @ P) * fd[t]
+        c = num.sum()
+        ll += np.log(c) + mx[t, 0]
+        prev = num / c
+    return ll
+
+
+def _ms_se(fit, units, K, kind, n, q):
+    """Standard errors from the numerical Hessian of the log-likelihood at the EM estimates."""
+    from .diagnostics import numerical_hessian
+    th = _pack(fit, K, kind, n, q)
+    if len(th) > 80:
+        return None
+    try:
+        H = numerical_hessian(lambda t: -_ms_llf(t, units, K, kind, n, q), th)
+        V = np.linalg.pinv((H + H.T) / 2)
+        se = np.sqrt(np.clip(np.diag(V), 0, None))
+    except Exception:
+        return None
+    # delta method for the transition probabilities
+    def probs(t):
+        return _unpack(t, K, kind, n, q)[3].ravel()
+    eps = 1e-5
+    J = np.array([(probs(th + eps * np.eye(len(th))[i]) - probs(th - eps * np.eye(len(th))[i])) / (2 * eps) for i in range(len(th))]).T
+    se_P = np.sqrt(np.clip(np.diag(J @ V @ J.T), 0, None)).reshape(K, K)
+    return dict(se=se, se_P=se_P)
+
+
+def _ms_output(model_id, title, fit, names, p, K, kind, labels, units, extra_notes, h=20, kmax_fits=None, ref=None):
     n = len(names)
     q = n * p
     nu, A, S, P, sm_ = fit["nu"], fit["A"], fit["S"], fit["P"], fit["smoothed"]
     T = sm_.shape[0]
-    tabs = [table("Regime-dependent intercepts", ["Variable"] + [f"Regime {j}" for j in range(K)], [[v] + [f(nu[j][i]) for j in range(K)] for i, v in enumerate(names)])]
+    from . import diagnostics as D
+    se = _ms_se(fit, units, K, kind, n, q)
+    if se:
+        sev = se["se"]
+        rows = []
+        for i, v in enumerate(names):
+            for j in range(K):
+                b, s_ = nu[j][i], sev[j * n + i]
+                rows.append([f"{v}, regime {j}", f(b), f(s_), f(b / s_ if s_ > 0 else None, 4), f(2 * stats.norm.sf(abs(b / s_)) if s_ > 0 else None, 4)])
+        tabs = [table("Regime-dependent intercepts", ["Parameter", "Estimate", "Std. err.", "z", "p-value"], rows,
+                      "Standard errors from the numerical Hessian of the log-likelihood at the EM estimates.")]
+    else:
+        tabs = [table("Regime-dependent intercepts", ["Variable"] + [f"Regime {j}" for j in range(K)], [[v] + [f(nu[j][i]) for j in range(K)] for i, v in enumerate(names)])]
     means = []
     for j in range(K):
         Asum = sum(A[j][(l - 1) * n:l * n].T for l in range(1, p + 1)) if q else np.zeros((n, n))
@@ -258,7 +433,8 @@ def _ms_output(model_id, title, fit, names, p, K, kind, labels, units, extra_not
     tabs.append(table("Implied regime means (steady state within each regime)", ["Variable"] + [f"Regime {j}" for j in range(K)],
                       [[v] + [f(means[j][i]) for j in range(K)] for i, v in enumerate(names)]))
     tabs.append(table("Transition probabilities (row: from, column: to)", ["From"] + [f"Regime {j}" for j in range(K)],
-                      [[f"Regime {i}"] + [f(P[i, j], 4) for j in range(K)] for i in range(K)]))
+                      [[f"Regime {i}"] + [f"{P[i, j]:.4f}" + (f" ({se['se_P'][i, j]:.4f})" if se else "") for j in range(K)] for i in range(K)],
+                      "Standard errors in parentheses (delta method)." if se else None))
     dur = 1 / (1 - np.diag(P))
     w, vec = np.linalg.eig(P.T)
     erg = np.real(vec[:, np.argmin(np.abs(w - 1))]); erg = np.abs(erg) / np.abs(erg).sum()
@@ -266,9 +442,17 @@ def _ms_output(model_id, title, fit, names, p, K, kind, labels, units, extra_not
                       [[f"Regime {j}", f(dur[j], 3), f(erg[j], 4), f((sm_[:, j] > 0.5).mean(), 3)] for j in range(K)]))
     if q:
         rn = reg_names(names, p, const=False)
+        off = K * n
         for j in range(K if kind == "MSIAH" else 1):
+            def cell(ri, i):
+                b = A[j][ri, i]
+                if not se:
+                    return f(b)
+                s_ = se["se"][off + j * q * n + i * q + ri]
+                return f"{b:.4f} ({s_:.4f})"
             tabs.append(table(f"Autoregressive coefficients" + (f", regime {j}" if kind == "MSIAH" else " (common to all regimes)"),
-                              ["Regressor"] + names, [[r] + [f(A[j][ri, i]) for i in range(n)] for ri, r in enumerate(rn)]))
+                              ["Regressor"] + [f"eq. {v}" for v in names], [[r] + [cell(ri, i) for i in range(n)] for ri, r in enumerate(rn)],
+                              "Standard errors in parentheses." if se else None))
     for j in range(K if kind != "MSI" else 1):
         tabs.append(table("Residual covariance" + (f", regime {j}" if kind != "MSI" else " (common)"), [""] + names,
                           [[a] + [f(S[j][ia, ib]) for ib in range(n)] for ia, a in enumerate(names)]))
@@ -284,6 +468,21 @@ def _ms_output(model_id, title, fit, names, p, K, kind, labels, units, extra_not
                        ["BIC (MS)", f(-2 * llf + np.log(nobs) * npar, 3)], ["BIC (linear)", f(-2 * lin + np.log(nobs) * kl, 3)]],
                       "Under the null of no switching the transition probabilities are unidentified, so the chi-square p-value is only a rough guide; prefer the information criteria."))
     lab = labels[-T:]
+    if kmax_fits:
+        rows = [[kk, f(ll_, 3), f(-2 * ll_ + 2 * np_, 3), f(-2 * ll_ + np.log(nobs) * np_, 3), f(-2 * ll_ + 2 * np.log(np.log(nobs)) * np_, 3)] for kk, ll_, np_ in kmax_fits]
+        tabs.insert(0, table("Number of regimes: information criteria", ["Regimes", "Log-likelihood", "AIC", "BIC", "HQIC"], rows,
+                             "Regimes = 1 is the linear VAR. A standard LR test is not valid under the null of no switching; compare the criteria."))
+    tabs.insert(0, D.unit_roots(np.vstack([u[0] for u in units]) if len(units) == 1 else np.mean([u[0] for u in units], axis=0), names))
+    if len(units) > 1:
+        tabs[0]["title"] = "Unit-root tests (cross-unit average of the series)"
+    tabs.append(table("Regime classification", ["Measure", "Value"], [["Regime classification measure, RCM (Ang and Bekaert 2002)", f(D.rcm(sm_), 2)]],
+                      "RCM = 0: sharp classification; 100: none. Below about 30 is sharp."))
+    tabs.append(D.regime_dates(sm_, lab))
+    resid = np.vstack([u[0] - sum(sm_[:, [j]] * (nu[j] + (u[1] @ A[j] if q else 0)) for j in range(K)) for u in units])
+    tabs.append(D.resid_tests(resid, names, title="Residual diagnostics (observed minus regime-weighted fit)"))
+    if ref is not None:
+        best = max(range(K), key=lambda j: (((sm_[:, j] > .5) == (ref[-T:] > .5)).mean()))
+        tabs.append(table(f"Comparison with the reference series (regime {best})", ["Measure", "Value"], D.concordance(sm_, ref[-T:], best)))
     charts = [chart("Smoothed regime probabilities", lab, [(f"Regime {j}", sm_[:, j]) for j in range(K)], "", "probability")]
     for i, v in enumerate(names[:3]):
         series = np.mean([u[0][:, i] for u in units], axis=0)
@@ -304,7 +503,7 @@ def _ms_output(model_id, title, fit, names, p, K, kind, labels, units, extra_not
     notes = [{"MSI": "MSI-VAR: only the intercepts switch.", "MSIH": "MSIH-VAR: intercepts and covariance matrices switch; autoregressive coefficients are common.",
               "MSIAH": "MSIAH-VAR: intercepts, autoregressive coefficients and covariance matrices all switch."}[kind],
              "Maximum likelihood by the EM algorithm (Hamilton filter, Kim smoother) from several starting values; regimes are ordered by the "
-             "intercept of the first variable. EM gives point estimates without standard errors. Impulse responses are regime-specific "
+             "intercept of the first variable. Standard errors come from the numerical Hessian of the log-likelihood at the EM estimates. Impulse responses are regime-specific "
              "Cholesky responses (no switching over the horizon)."] + extra_notes
     return result(model_id, title, nobs, summary, tabs, charts, notes)
 
@@ -328,8 +527,27 @@ def msvar(df, spec):
         Yt, X = lagmat(Y, p, const=False)
     else:
         Yt, X = Y, np.zeros((len(Y), 0))
-    fit = _ms_em([(Yt, X)], K, kind, starts=int_option(spec, "starts", 6, 1, 50, "Starting values"))
-    return _ms_output("msvar", f"Markov-switching VAR ({kind}, {K} regimes)", fit, names, p, K, kind, labels, [(Yt, X)], [])
+    starts = int_option(spec, "starts", 6, 1, 50, "Starting values")
+    fit = _ms_em([(Yt, X)], K, kind, starts=starts)
+    kf = _regime_numbers([(Yt, X)], K, kind, fit, starts)
+    ref = _ref_spec(spec, df)
+    refv = pd.to_numeric(df.loc[d.index, ref], errors="coerce").fillna(0).to_numpy()[p:] if ref else None
+    return _ms_output("msvar", f"Markov-switching VAR ({kind}, {K} regimes)", fit, names, p, K, kind, labels, [(Yt, X)], [], kmax_fits=kf, ref=refv)
+
+
+def _regime_numbers(units, K, kind, fit, starts):
+    n = units[0][0].shape[1]
+    q = units[0][1].shape[1]
+    out = []
+    lin, kl = _linear_llf(units)
+    out.append((1, lin, kl))
+    for kk in sorted({2, 3, K}):
+        if kk > 3:
+            continue
+        f_ = fit if kk == K else _ms_em(units, kk, kind, starts=max(2, starts // 2))
+        npar = kk * n + (kk if kind == "MSIAH" else 1) * q * n + (kk if kind != "MSI" else 1) * n * (n + 1) // 2 + kk * (kk - 1)
+        out.append((kk, f_["llf"], npar))
+    return out
 
 
 def mspvar(df, spec):
@@ -359,9 +577,11 @@ def mspvar(df, spec):
     dropped = d[unit].nunique() - len(units)
     if len(units) < 2:
         raise OESError("The Markov-switching panel VAR needs a balanced panel with at least two complete units.")
-    fit = _ms_em(units, K, kind, starts=int_option(spec, "starts", 6, 1, 50, "Starting values"))
+    starts = int_option(spec, "starts", 6, 1, 50, "Starting values")
+    fit = _ms_em(units, K, kind, starts=starts)
+    kf = _regime_numbers(units, K, kind, fit, starts)
     notes = [f"Panel version: one regime path shared by all {len(units)} units (synchronised regimes), pooled regime-dependent coefficients; "
              + ("each unit's series are demeaned first, so the regime intercepts are deviations from unit means." if demean else "no unit fixed effects.")]
     if dropped:
         notes.append(f"{dropped} unit(s) with missing periods were left out (a balanced panel is required).")
-    return _ms_output("mspvar", f"Markov-switching panel VAR ({kind}, {K} regimes)", fit, names, p, K, kind, times, units, notes)
+    return _ms_output("mspvar", f"Markov-switching panel VAR ({kind}, {K} regimes)", fit, names, p, K, kind, times, units, notes, kmax_fits=kf)

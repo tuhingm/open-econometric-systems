@@ -14,8 +14,13 @@ import pandas as pd
 from scipy import stats
 from scipy.special import multigammaln
 
-from .core import OESError, as_list, chart, distinct, f, float_option, int_option, need, result, stat, table
+from .core import OESError, as_list, chart, distinct, f, float_option, int_option, need, result, stat, table, test_row
 from .timeseries import _series_frame
+
+
+def D_mcmc(draws, names):
+    from .diagnostics import mcmc_table
+    return mcmc_table(draws, names, "MCMC convergence diagnostics (steady states)")
 
 
 # ================================================================================================ shared VAR tools
@@ -315,6 +320,23 @@ def bayes_reg(df, spec):
         charts.append(chart(f"Posterior density of {names[j]}", [f((a + b) / 2, 4) for a, b in zip(edges[:-1], edges[1:])], [("draws", hist)], names[j], "count", kind="bar"))
         summary.append(stat("Posterior mean of sigma^2", float(s2d.mean())))
     tabs.append(table("OLS for comparison", ["Parameter", "Coef.", "Std. err."], [[v, f(b), f(s)] for v, b, s in zip(names, ols.params, ols.bse)]))
+    # prior sensitivity: posterior means of the slopes under looser and tighter priors (conjugate formulas)
+    sens = []
+    Xc = X[:, 1:] - X[:, 1:].mean(0)
+    for lab_, Vi in ([(f"g-prior, g = {gg:g}", np.block([[np.array([[1e-10]]), np.zeros((1, k - 1))], [np.zeros((k - 1, 1)), Xc.T @ Xc / gg]]))
+                      for gg in (1, 10, n, 10 * n)] + [(f"normal prior, s.d. {sd_:g}", np.diag([1e-10] + [1 / sd_ ** 2] * (k - 1))) for sd_ in (0.1, 1, 10)]):
+        bm = np.linalg.solve(Vi + X.T @ X, Vi @ b0 + X.T @ Y)
+        sens.append([lab_] + [f(v) for v in bm[1:]])
+    tabs.append(table("Prior sensitivity: posterior means of the slopes", ["Prior"] + x, sens,
+                      "Conclusions that hold across the rows are robust to the prior. Small g or a small prior s.d. pulls the slopes towards the prior mean."))
+    from .diagnostics import resid_tests
+    from statsmodels.stats.diagnostic import het_breuschpagan
+    bpost = np.asarray([r_[1] for r_ in tabs[0]["rows"]], float)
+    e = Y - X @ bpost
+    bp = het_breuschpagan(e, X)
+    tdiag = resid_tests(e[:, None], ["residual"], title="Residual diagnostics (at the posterior mean)")
+    tdiag["rows"].append(test_row("Breusch-Pagan heteroskedasticity", bp[0], bp[1], "H0: constant variance; if rejected, the normal likelihood understates the uncertainty"))
+    tabs.append(tdiag)
     summary = [stat("Observations", n), stat("Prior", "g-prior" if prior == "gprior" else "normal"),
                stat("Method", "exact (conjugate)" if method == "conjugate" else "Gibbs sampler")] + summary
     notes.append("Inverse-gamma(0.01, 0.01) prior on the error variance.")
@@ -394,19 +416,53 @@ def _block(spec, names):
     return np.array([v in blk for v in names])
 
 
-def _var_common_out(names, p, Bs, Ss, Yt, X, Y, labels, spec, h, title_extra=""):
+def _var_common_out(names, p, Bs, Ss, Yt, X, Y, labels, spec, h, title_extra="", gibbs=False, lam1=0.2, delta=0.0, pre=True, evaluate=True):
+    """Coefficient tables, impulse responses and forecasts, plus the tests a paper needs: unit roots and lag choice
+    before estimation; convergence, residual diagnostics, variance and historical decompositions, out-of-sample
+    forecast comparison and prior sensitivity after it."""
+    from . import diagnostics as D
+    n = len(names)
     tabs = []
+    if pre:
+        tabs.append(D.unit_roots(Y, names))
+        pmax = int(min(8, max(2, (len(Y) - 20) // (3 * n + 1))))
+        tabs.append(D.lag_selection_ml(Y, pmax, lam1, np.broadcast_to(np.asarray(delta, float), (n,)))[0])
+        tabs.append(D.lambda_selection(Y, p, delta=np.broadcast_to(np.asarray(delta, float), (n,)))[0])
     rn = reg_names(names, p)
     for i, v in enumerate(names):
         tabs.append(post_table(f"Equation: {v}", rn, Bs[:, :, i]))
-    I = np.array([irf(Bs[d], Ss[d], len(names), p, h) for d in range(len(Bs))])
+    if gibbs:
+        # Bs is draws x k x n; flattening row-major gives (regressor, equation) pairs
+        tabs.append(D.mcmc_table(Bs.reshape(len(Bs), -1), [f"{names[i]}: {r}" for r in rn for i in range(n)],
+                                 "MCMC convergence diagnostics (coefficients)"))
+    Bm, Sm = Bs.mean(0), Ss.mean(0)
+    Yl, Xl = lagmat(Y, p)
+    tabs.append(D.resid_tests(Yl - Xl @ Bm, names, title="Residual diagnostics (at the posterior mean)"))
+    I = np.array([irf(Bs[d], Ss[d], n, p, h) for d in range(len(Bs))])
+    tabs.append(D.fevd_table(I, names))
+    if evaluate and len(Y) > 60:
+        try:
+            tabs.append(D.forecast_comparison(Y, p, lam1, np.broadcast_to(np.asarray(delta, float), (n,)), names=names))
+        except Exception:
+            pass
+        sh = names.index(spec["sens_shock"]) if spec.get("sens_shock") in names else 0
+        rs = names.index(spec["sens_response"]) if spec.get("sens_response") in names else n - 1
+        tabs.append(D.prior_sensitivity(Y, p, names, delta=np.broadcast_to(np.asarray(delta, float), (n,)), shock=sh, resp=rs))
     hf = int_option(spec, "fhorizon", 8, 1, 60, "Forecast horizon")
     rng = np.random.default_rng(1)
     step = max(1, len(Bs) // 500)
     F = np.array([simulate_forecast(Bs[d], Ss[d], Y, p, hf, rng) for d in range(0, len(Bs), step)])
     charts = irf_charts(I, names, h) + forecast_charts(F, Y, names, labels, hf)
-    eig = [np.abs(np.linalg.eigvals(companion(Bs[d], len(names), p))).max() for d in range(0, len(Bs), step)]
-    return tabs, charts, float(np.mean(np.array(eig) < 1))
+    try:
+        charts.append(D.historical_decomposition(Bm, Sm, Y, p, names, labels, target=n - 1))
+    except Exception:
+        pass
+    eig = [np.abs(np.linalg.eigvals(companion(Bs[d], n, p))).max() for d in range(0, len(Bs), step)]
+    stable = float(np.mean(np.array(eig) < 1))
+    tabs.append(table("Stability", ["Item", "Value"], [["Share of posterior draws with all companion roots inside the unit circle", f(stable, 3)],
+                                                       ["Largest root modulus at the posterior mean", f(np.abs(np.linalg.eigvals(companion(Bm, n, p))).max(), 4)]],
+                      "Unit roots in levels data make many draws non-stationary; that is expected with a random-walk prior and is not a failure."))
+    return tabs, charts, stable
 
 
 def bvar(df, spec):
@@ -425,7 +481,8 @@ def bvar(df, spec):
     ndraw, burn, rng = _draw_settings(spec, 1000, 500)
     block = _block(spec, names)
     Bs, Ss, Yt, X, extra = estimate_bvar(Y, p, prior, hyper, delta, ndraw, burn, rng, block)
-    tabs, charts, stable = _var_common_out(names, p, Bs, Ss, Yt, X, Y, labels, spec, h)
+    tabs, charts, stable = _var_common_out(names, p, Bs, Ss, Yt, X, Y, labels, spec, h, gibbs=prior in ("inw", "nd"),
+                                           lam1=hyper["lam1"], delta=delta)
     ols = np.linalg.lstsq(X, Yt, rcond=None)[0]
     shrink = float(np.linalg.norm(Bs.mean(0)[1:] - ols[1:]) / max(np.linalg.norm(ols[1:]), 1e-12))
     summary = [stat("Observations", len(Yt)), stat("Prior", PRIORS[prior]), stat("Lags", p), stat("lambda1", hyper["lam1"]),
@@ -468,7 +525,9 @@ def favar(df, spec):
     ndraw, burn, rng = _draw_settings(spec, 1000, 500)
     Bs, Ss, Yt, X, extra = estimate_bvar(Y, p, prior, hyper, 0.0, ndraw, burn, rng)
     # loadings of every informational series on (factors, observed variables)
-    Lam = np.linalg.lstsq(np.column_stack([np.ones(len(Y)), Y]), Xs, rcond=None)[0][1:]          # (K + m) x N
+    Zl = np.column_stack([np.ones(len(Y)), Y])
+    Lfull = np.linalg.lstsq(Zl, Xs, rcond=None)[0]
+    Lam = Lfull[1:]                                                                                # (K + m) x N
     I = np.array([irf(Bs[dd], Ss[dd], len(names), p, h) for dd in range(len(Bs))])          # draws x h x (K+m) x (K+m)
     pol = len(names) - 1
     resp_x = np.einsum("dhks,kn->dhns", I, Lam)[..., pol] * sd                                  # draws x h x N, original units
@@ -480,13 +539,28 @@ def favar(df, spec):
                             band=(np.percentile(Ii, 16, 0), np.percentile(Ii, 84, 0))))
     for j in range(min(len(xv), 9 - len(charts))):
         charts.append(chart(f"Response of {xv[j]} to a shock in {yv[-1]}", list(range(h + 1)), [("median", med[:, j])], "horizon", xv[j], band=(lo[:, j], hi[:, j])))
-    r2 = 1 - ((Xs - np.column_stack([np.ones(len(Y)), Y]) @ np.vstack([np.zeros((1, len(xv))), Lam])) ** 2).sum(0) / (Xs ** 2).sum(0)
+    r2 = 1 - ((Xs - Zl @ Lfull) ** 2).sum(0) / ((Xs - Xs.mean(0)) ** 2).sum(0)
     tabs = [table("Principal-component factors", ["Factor", "Share of variance", "Cumulative"],
                   [[f"F{j + 1}", f(share[j], 4), f(share[:j + 1].sum(), 4)] for j in range(K)]),
             table(f"Responses of the informational series to a shock in {yv[-1]} (median)", ["Series", "Impact", f"h = {min(4, h)}", f"h = {min(12, h)}", "R-squared of loadings"],
                   [[v, f(med[0, j]), f(med[min(4, h), j]), f(med[min(12, h), j]), f(r2[j], 3)] for j, v in enumerate(xv)])]
+    from . import diagnostics as D
+    # Bai and Ng (2002) information criterion IC_p2 for the number of factors
+    Tn, Nn = Xs.shape
+    ic = []
+    for kk in range(1, min(8, Nn - 1) + 1):
+        Fk = U[:, :kk] * s[:kk]
+        resid = Xs - Fk @ np.linalg.lstsq(Fk, Xs, rcond=None)[0]
+        V = (resid ** 2).sum() / (Nn * Tn)
+        ic.append([kk, f(np.log(V) + kk * (Nn + Tn) / (Nn * Tn) * np.log(min(Nn, Tn)), 4), f(share[:kk].sum(), 3)])
+    best_k = min(ic, key=lambda r: r[1])[0]
+    tabs.insert(0, table("Number of factors: Bai and Ng (2002) IC_p2", ["Factors", "IC_p2 (lower is better)", "Cumulative variance share"], ic,
+                         f"The criterion prefers {best_k} factor(s); the model uses {K}."))
+    tabs.insert(0, D.unit_roots(d[yv + xv].to_numpy(float), yv + xv))
     for i, v in enumerate(yv):
         tabs.append(post_table(f"Equation: {v}", reg_names(names, p), Bs[:, :, K + i]))
+    tabs.append(D.resid_tests(Yt - X @ Bs.mean(0), names, title="Residual diagnostics of the FAVAR (at the posterior mean)"))
+    tabs.append(D.fevd_table(I, names))
     summary = [stat("Observations", len(Yt)), stat("Factors", K), stat("Informational series", len(xv)), stat("Variance explained", float(share[:K].sum()), 3),
                stat("Prior", PRIORS[prior])]
     notes = ["Two-step FAVAR (Bernanke, Boivin and Eliasz 2005): factors are principal components of the standardised informational "
@@ -551,8 +625,10 @@ def mabvar(df, spec):
     tabs = [post_table("Steady states (posterior)", names, draws_psi,
                        "Prior: " + "; ".join(f"{v} ~ N({a:.3g}, {b:.3g}^2)" for v, a, b in zip(names, m0, s0)))]
     hf = int_option(spec, "fhorizon", 20, 1, 80, "Forecast horizon")
-    t2, charts, stable = _var_common_out(names, p, Bs, Ss, None, None, Y, labels, dict(spec, fhorizon=hf), h)
-    tabs += t2
+    t2, charts, stable = _var_common_out(names, p, Bs, Ss, None, None, Y, labels, dict(spec, fhorizon=hf), h, gibbs=True,
+                                         lam1=hyper["lam1"], delta=0.0)
+    t2[3:3] = tabs + [D_mcmc(draws_psi, [f"steady state: {v}" for v in names])]
+    tabs = t2
     summary = [stat("Observations", T), stat("Lags", p)] + [stat(f"Steady state of {v}", float(draws_psi[:, i].mean())) for i, v in enumerate(names)]
     notes = ["Mean-adjusted BVAR (Villani 2009): y_t - psi = sum A_l (y_{t-l} - psi) + e_t, with an informative normal prior on the "
              "steady state psi and an independent Minnesota prior on the lags (prior mean 0); Gibbs sampler with " f"{ndraw} draws after {burn}.",
@@ -635,6 +711,13 @@ def tvar(df, spec):
                 break
             charts.append(chart(f"Response of {names[i]} to a shock in {names[j]}", list(range(h + 1)),
                                 [("low regime", np.median(I_reg["low"][:, :, i, j], 0)), ("high regime", np.median(I_reg["high"][:, :, i, j], 0))], "horizon", names[i]))
+    from . import diagnostics as D
+    tabs.insert(0, D.unit_roots(Y, names))
+    for lab_, mask in (("low", ~hi), ("high", hi)):
+        Bb = nw_posterior(Yt[mask], X[mask], B0, Phi0, S0, a0)[0]
+        tabs.append(D.resid_tests(Yt[mask] - X[mask] @ Bb, names, title=f"Residual diagnostics, {lab_} regime (posterior mean)"))
+    tabs.append(D.regime_dates(np.column_stack([~hi, hi]).astype(float), labels[s:s + T], min_len=1))
+    tabs[-1]["title"] = "Regime dating (regime 0 = low, regime 1 = high)"
     summary = [stat("Observations", T), stat("Threshold", float(r)), stat("Delay", dl), stat("High-regime share", float(hi.mean()), 3),
                stat("Lags", p)]
     notes = ["Bayesian threshold VAR: Normal-Wishart prior (Minnesota-type, lambda1 = %g) in each regime; the threshold and delay have "

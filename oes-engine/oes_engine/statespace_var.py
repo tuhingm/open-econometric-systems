@@ -48,7 +48,7 @@ def tvpvar(df, spec):
     p = int_option(spec, "lags", 2, 1, 4, "Lags")
     tau = int_option(spec, "training", 40, 10, 200, "Training-sample length")
     kQ = float_option(spec, "kQ", 0.01, "kQ")
-    ndraw, burn, rng = _draw_settings(spec, 500, 300)
+    ndraw, burn, rng = _draw_settings(spec, 1000, 1000)
     if len(Yall) < tau + p + 20:
         raise OESError("The sample is too short for this training sample: lower the training-sample length.")
     # training sample: OLS mean and covariance of the coefficients
@@ -65,6 +65,9 @@ def tvpvar(df, spec):
     Q0, nuQ = kQ ** 2 * tau * V_ols + 1e-10 * np.eye(m), max(tau, m + 2)
     Z = np.array([np.kron(np.eye(n), x[None, :]) for x in X])                     # T x n x m
     Q, S = Q0 / nuQ, S_ols.copy()
+    stab_tries = int_option(spec, "stability_tries", 0, 0, 50, "Stability retries") or 1
+    check_stab = int_option(spec, "stability_tries", 0, 0, 50, "Stability retries") > 0
+    accepted, rejected = 0, 0
     keep_b = np.empty((ndraw, T, m))
     keep_S = np.empty((ndraw, n, n))
     for it in range(burn + ndraw):
@@ -79,11 +82,21 @@ def tvpvar(df, spec):
             b = b + K @ (Yt[t] - Zt @ b)
             P = P - K @ Zt @ P
             bf[t], Pf[t] = b, P
-        B = np.empty((T, m))
-        B[-1] = _mvn(bf[-1], Pf[-1], rng)
-        for t in range(T - 2, -1, -1):
-            G = np.linalg.solve(Pf[t] + Q, Pf[t]).T
-            B[t] = _mvn(bf[t] + G @ (B[t + 1] - bf[t]), Pf[t] - G @ Pf[t], rng)
+        # Carter-Kohn backward sampling; paths with an explosive VAR at some date are rejected (Cogley and Sargent 2005)
+        for attempt in range(stab_tries):
+            Bn = np.empty((T, m))
+            Bn[-1] = _mvn(bf[-1], Pf[-1], rng)
+            for t in range(T - 2, -1, -1):
+                G = np.linalg.solve(Pf[t] + Q, Pf[t]).T
+                Bn[t] = _mvn(bf[t] + G @ (Bn[t + 1] - bf[t]), Pf[t] - G @ Pf[t], rng)
+            if not check_stab or all(np.abs(np.linalg.eigvals(companion(Bn[t].reshape((k, n), order="F"), n, p))).max() < 1 for t in range(0, T, 4)):
+                B = Bn
+                accepted += 1
+                break
+        else:
+            rejected += 1
+            if it == 0:
+                B = Bn
         # 2. state innovation covariance and 3. residual covariance
         dB = np.diff(np.vstack([b0, B]), axis=0)
         Q = np.atleast_2d(iw(Q0 + dB.T @ dB, nuQ + T, rng))
@@ -112,11 +125,23 @@ def tvpvar(df, spec):
             j = i * k + r
             ch = last[:, j] - first[:, j]
             rows.append([v, nm, f(first[:, j].mean()), f(last[:, j].mean()), f(ch.mean()), f((ch > 0).mean(), 3)])
-    tabs = [table(f"Coefficients at the start ({lab[0]}) and the end ({lab[-1]}) of the sample", ["Equation", "Regressor", "Start (mean)", "End (mean)", "Change", "P(change > 0)"], rows),
-            post_table("Residual covariance (posterior)", [f"Sigma[{a},{b}]" for a in names for b in names], keep_S.reshape(ndraw, -1))]
-    summary = [stat("Observations", T), stat("Training sample", tau), stat("Lags", p), stat("kQ", kQ), stat("Draws", ndraw)]
+    from . import diagnostics as D
+    Bmed = keep_b.mean(0)
+    E = Yt - np.einsum("tnm,tm->tn", Z, Bmed)
+    sel = [i * k + r for i in range(n) for r in (0, 1 + i)]
+    tabs = [D.unit_roots(Yall, names),
+            table(f"Coefficients at the start ({lab[0]}) and the end ({lab[-1]}) of the sample", ["Equation", "Regressor", "Start (mean)", "End (mean)", "Change", "P(change > 0)"], rows,
+                  "If P(change > 0) is near 0 or 1, the coefficient has moved over the sample: evidence of time variation."),
+            post_table("Residual covariance (posterior)", [f"Sigma[{a},{b}]" for a in names for b in names], keep_S.reshape(ndraw, -1)),
+            D.mcmc_table(np.column_stack([keep_b[:, -1, sel], keep_S.reshape(ndraw, -1)]),
+                         [f"{names[j // k]}: {rn[j % k]} (last date)" for j in sel] + [f"Sigma[{a},{b}]" for a in names for b in names]),
+            D.resid_tests(E, names, title="Residual diagnostics (posterior-mean coefficient paths)")]
+    summary = [stat("Observations", T), stat("Training sample", tau), stat("Lags", p), stat("kQ", kQ), stat("Draws", ndraw),
+               stat("Iterations with no stable path", rejected)]
     notes = [f"Random-walk coefficients with a training-sample prior (Primiceri 2005): b_0 ~ N(OLS, 4 V_OLS), Q ~ IW(kQ^2 tau V_OLS, tau); "
-             f"the first {tau + p} observations are used only for the prior. Bands are 68% credible intervals; {ndraw} draws after {burn}.",
+             f"the first {tau + p} observations are used only for the prior. "
+             + ("Coefficient paths that imply an explosive VAR at any date are rejected (Cogley and Sargent 2005). " if check_stab else "")
+             + f"Bands are 68% credible intervals; {ndraw} draws after {burn}.",
              "Impulse responses at a date use that date's coefficients (Cholesky ordering), as is usual for TVP-VARs."]
     return result("tvpvar", "Time-varying parameter VAR", T, summary, tabs, charts, notes)
 
@@ -227,6 +252,15 @@ def svvar(df, spec):
     for i, v in enumerate(names):
         tabs.append(post_table(f"Equation: {v}", rn, keepB[:, :, i]))
     tabs.append(post_table("Variance of the log-volatility innovations", [f"s[{v}]" for v in names], keeps))
+    from . import diagnostics as D
+    tabs.insert(0, D.unit_roots(Y, names))
+    tabs.append(D.mcmc_table(np.column_stack([keepB.reshape(ndraw, -1), keeps]), [f"{names[i]}: {r}" for r in rn for i in range(n)] + [f"s[{v}]" for v in names]))
+    Bm = keepB.mean(0)
+    Am = keepA.mean(0)
+    Hm = np.median(keepH, 0)
+    std_shocks = ((Yt - X @ Bm) @ Am.T) / np.exp(Hm / 2)
+    tabs.append(D.resid_tests(std_shocks, [f"shock {v}" for v in names], title="Diagnostics of the standardised structural shocks"))
+    tabs[-1]["note"] = "Shocks divided by their estimated volatility should be white noise and close to normal if the volatility model fits; compare with a constant-volatility VAR, where ARCH tests usually reject."
     vol = np.exp(keepH / 2)
     tabs.append(table("Shock volatility over the sample (posterior median s.d.)", ["Variable", "Minimum", "Date", "Maximum", "Date", "Last"],
                       [[v, f(np.median(vol[:, :, i], 0).min()), str(lab[int(np.argmin(np.median(vol[:, :, i], 0)))]),
@@ -370,8 +404,24 @@ def mfbvar(df, spec):
         tabs.append(table("Nowcasts: months after the last quarterly release", ["Variable", "Month", "Monthly (median)", "16%", "84%", "Implied quarterly value"], rows,
                           "The implied quarterly value aggregates the latent monthly path with the chosen weights; at the quarter's last month it is the nowcast of the release."))
     rn = reg_names(names, p)
+    from . import diagnostics as D
+    ur = []
+    for i, v in enumerate(names):
+        x = Yobs[:, i][np.isfinite(Yobs[:, i])]
+        ur.append(x)
+    from statsmodels.tsa.stattools import adfuller
+    tabs.insert(0, table("Unit-root tests (observed data)", ["Variable", "Frequency", "Observations", "ADF p-value (level)", "ADF p-value (difference)"],
+                         [[v, "quarterly" if i >= nm else "monthly", len(ur[i]), f(adfuller(ur[i], autolag="AIC")[1], 4), f(adfuller(np.diff(ur[i]), autolag="AIC")[1], 4)]
+                          for i, v in enumerate(names)],
+                         "Use growth rates (triangle aggregation) for I(1) variables such as GDP, or levels with the 3-month average."))
     for i, v in enumerate(names):
         tabs.append(post_table(f"Monthly VAR equation: {v}", rn, keepB[:, :, i]))
+    tabs.append(D.mcmc_table(np.column_stack([keepB.reshape(ndraw, -1), keepY[:, -1, :]]), [f"{names[i]}: {r}" for r in rn for i in range(n)] + [f"last month of {v}" for v in qvars]))
+    Bm = keepB.mean(0)
+    Ylat = Yobs.copy()
+    Ylat[:, nm:] = np.median(keepY, 0)
+    Yl, Xl = lagmat(Ylat, p)
+    tabs.append(D.resid_tests(Yl - Xl @ Bm, names, title="Residual diagnostics of the monthly VAR (posterior means)"))
     h = int_option(spec, "horizon", 24, 1, 60, "IRF horizon")
     I = np.array([irf(keepB[q], keepS[q], n, p, h) for q in range(ndraw)])
     charts += irf_charts(I, names, h, shocks=[n - 1] if n > 2 else None, max_charts=6)
