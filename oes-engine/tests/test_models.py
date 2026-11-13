@@ -63,7 +63,7 @@ def test_every_model_runs_on_its_guide_example(model_id):
 
 
 def test_catalog_covers_every_guide_page():
-    pages = {"time-series-guide": {"ols", "ardl", "nardl", "var", "vecm", "gmm", "lp", "svar", "bp"},
+    pages = {"time-series-guide": {"ols", "ardl", "nardl", "var", "vecm", "gmm", "lp", "svar", "bp", "tar", "str"},
              "panel-data-guide": {"pols", "fe", "re", "diff", "fedk", "gmm", "mg", "pmg", "csardl", "plp", "pthresh"},
              "causal-inference-guide": {"did", "staggered", "its", "iv", "rdd", "scm", "gsc"},
              "ml-guide": {"lasso", "ridge", "enet", "rf", "xgb", "dml-plr", "dml-irm", "dml-iv", "causal-forest"},
@@ -73,7 +73,7 @@ def test_catalog_covers_every_guide_page():
     for folder, slugs in pages.items():
         for s in slugs:
             assert f"{folder}/{s}.html" in guides, f"{folder}/{s}.html has no OES model"
-    assert len(E.MODELS) == 49
+    assert len(E.MODELS) == 51
     assert all(m["guide"] for m in E.MODELS)                       # every model links to a guide page
     json.dumps(E.catalog())
 

@@ -13,7 +13,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from . import bayes, breaks, causal, lp, markov, ml, panel, pthreshold, pvar, statespace_var, svar, timeseries
+from . import bayes, breaks, causal, lp, markov, ml, panel, pthreshold, pvar, smooth, statespace_var, svar, tar, timeseries
 from .core import OESError, read_csv, time_order
 from .report import frame, plot, show, summary, tables
 
@@ -127,6 +127,23 @@ MODELS = [
                  sel("select", "Choose the number of breaks by", [["bic", "BIC"], ["lwz", "LWZ"], ["sequential", "Sequential supF(l+1|l) tests"],
                                                                  ["udmax", "UDmax, then sequential"]], "bic")],
          example=dict(file=TS + "yield.csv", spec=dict(y="inflation", time="date", trim="0.15", max_breaks=5, select="bic"))),
+    dict(id="tar", group="Time series", name="Threshold regression (TAR / SETAR)", guide="time-series-guide/tar.html", fn=tar.tar,
+         fields=[col("y", "Dependent variable"), cols("x", "Other regressors (blank = lags only)", required=False),
+                 col("threshold", "Threshold variable (blank = lag of the dependent variable: SETAR)", required=False), TIME,
+                 num("ar_lags", "Lags of the dependent variable", 1), num("delay", "Delay of the threshold variable", 1),
+                 sel("search_delay", "Choose the delay by least squares", [["no", "No, use the delay above"], ["yes", "Yes, search 1 to the largest delay"]], "no"),
+                 num("max_delay", "Largest delay to search", 4),
+                 sel("trim", "Trimming (minimum regime share)", [["0.15", "15%"], ["0.10", "10%"], ["0.20", "20%"], ["0.25", "25%"]], "0.15"),
+                 sel("max_thresholds", "Look for", [["2", "Up to two thresholds"], ["1", "One threshold"]], "2"),
+                 num("boot", "Bootstrap replications", 199)],
+         example=dict(file=TS + "yield.csv", spec=dict(y="inflation", time="date", ar_lags=2, search_delay="yes", max_delay=4, trim="0.15", max_thresholds="2", boot=199))),
+    dict(id="str", group="Time series", name="Smooth-transition regression (LSTAR / ESTAR)", guide="time-series-guide/str.html", fn=smooth.smooth,
+         fields=[col("y", "Dependent variable"), cols("x", "Other regressors (blank = lags only)", required=False),
+                 col("transition", "Transition variable (blank = lag of the dependent variable)", required=False), TIME,
+                 num("ar_lags", "Lags of the dependent variable", 1), num("delay", "Delay of the transition variable", 1),
+                 sel("form", "Transition function", [["auto", "Choose by Terasvirta's tests"], ["logistic", "Logistic (LSTAR)"], ["exponential", "Exponential (ESTAR)"]], "auto"),
+                 sel("trim", "Range for the location c (percentiles)", [["0.10", "10th to 90th"], ["0.15", "15th to 85th"], ["0.20", "20th to 80th"]], "0.10")],
+         example=dict(file=TS + "taylor.csv", spec=dict(y="fedfunds", x=["inflation", "output_gap"], transition="output_gap", time="date", ar_lags=1, delay=3, form="auto", trim="0.10"))),
     dict(id="pols", group="Panel data", name="Pooled OLS", guide="panel-data-guide/pols.html", fn=panel.pols,
          fields=[col("y", "Dependent variable"), cols("x", "Regressors"), UNIT, PTIME, PCOV, BW],
          example=dict(file=PD + "crime4.csv", spec=dict(y="lcrmrte", x=["lprbarr", "lprbconv", "lprbpris", "lavgsen", "lpolpc"], unit="county", time="year"))),

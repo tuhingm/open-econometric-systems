@@ -1,6 +1,6 @@
 # OES model catalogue
 
-All 49 models below are implemented in `oes-engine` and run in the browser at
+All 51 models below are implemented in `oes-engine` and run in the browser at
 <https://tuhingm.github.io/almamun/oes/>. `oes_engine.catalog()` is the machine-readable version (input fields,
 guide page, example dataset, Pyodide packages).
 
@@ -14,6 +14,8 @@ guide page, example dataset, Pyodide packages).
 | `iv_gmm` | 2SLS and GMM | time-series-guide/gmm | NumPy | linearmodels IV2SLS / IVGMM |
 | `svar` | Structural VAR | time-series-guide/svar | NumPy + statsmodels lag selection; wild bootstrap | statsmodels VAR orthogonalised IRFs; simulated long-run and proxy truth |
 | `bp` | Structural breaks (Bai-Perron) | time-series-guide/bp | NumPy dynamic programming; simulated critical values (`tools/simulate_bp_cv.py`) | brute-force partition search; Andrews (1993) and Bai-Perron (2003) critical values |
+| `tar` | Threshold regression (TAR / SETAR) | time-series-guide/tar | NumPy (sorted cumulative moments, Hansen bootstrap) | brute-force split search; simulated SETAR and two-threshold truth |
+| `str` | Smooth-transition regression (LSTAR / ESTAR) | time-series-guide/str | NumPy + SciPy (grid search, simplex, analytic Jacobian) | finite-difference derivatives; simulated LSTAR and ESTAR truth |
 | `lp` | Local projections | time-series-guide/lp | NumPy (HAC, lag augmentation, LP-IV) | statsmodels OLS and VAR impulse responses |
 | `pols` | Pooled OLS | panel-data-guide/pols | NumPy | linearmodels PooledOLS |
 | `fe` | Fixed effects | panel-data-guide/fe | NumPy (within, two-way) | linearmodels PanelOLS |
