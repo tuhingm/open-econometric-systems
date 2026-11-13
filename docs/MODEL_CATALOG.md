@@ -6,13 +6,13 @@ guide page, example dataset, Pyodide packages).
 
 | id | Model | Guide page | Implementation | Reference used in the tests |
 |---|---|---|---|---|
-| `ols` | OLS with diagnostics | research-guide/ols | statsmodels | statsmodels |
-| `ardl` | ARDL bounds test | research-guide/ardl | statsmodels ARDL/UECM | guide (F = 8.18, long run 1.98) |
-| `nardl` | Nonlinear ARDL | research-guide/nardl | partial sums + UECM, Wald symmetry tests | partial-sum identities |
-| `var` | VAR | research-guide/var | statsmodels | statsmodels |
-| `vecm` | VECM | research-guide/vecm | statsmodels (Johansen) | statsmodels |
-| `iv_gmm` | 2SLS and GMM | research-guide/gmm | NumPy | linearmodels IV2SLS / IVGMM |
-| `lp` | Local projections | research-guide/lp | NumPy (HAC, lag augmentation, LP-IV) | statsmodels OLS and VAR impulse responses |
+| `ols` | OLS with diagnostics | time-series-guide/ols | statsmodels | statsmodels |
+| `ardl` | ARDL bounds test | time-series-guide/ardl | statsmodels ARDL/UECM | guide (F = 8.18, long run 1.98) |
+| `nardl` | Nonlinear ARDL | time-series-guide/nardl | partial sums + UECM, Wald symmetry tests | partial-sum identities |
+| `var` | VAR | time-series-guide/var | statsmodels | statsmodels |
+| `vecm` | VECM | time-series-guide/vecm | statsmodels (Johansen) | statsmodels |
+| `iv_gmm` | 2SLS and GMM | time-series-guide/gmm | NumPy | linearmodels IV2SLS / IVGMM |
+| `lp` | Local projections | time-series-guide/lp | NumPy (HAC, lag augmentation, LP-IV) | statsmodels OLS and VAR impulse responses |
 | `pols` | Pooled OLS | panel-data-guide/pols | NumPy | linearmodels PooledOLS |
 | `fe` | Fixed effects | panel-data-guide/fe | NumPy (within, two-way) | linearmodels PanelOLS |
 | `re` | Random effects | panel-data-guide/re | NumPy (Swamy-Arora) | linearmodels RandomEffects |

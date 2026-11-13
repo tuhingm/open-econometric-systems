@@ -43,7 +43,7 @@ PCOV = sel("cov", "Standard errors", [["clustered", "Clustered by unit"], ["robu
                                       ["dk", "Driscoll-Kraay"]], "clustered")
 BW = num("bandwidth", "Driscoll-Kraay bandwidth (blank = automatic)", "")
 
-TS = "research-guide/examples/"
+TS = "time-series-guide/examples/"
 PD = "panel-data-guide/examples/"
 CI = "causal-inference-guide/examples/"
 MLD = "ml-guide/examples/"
@@ -51,36 +51,36 @@ LAG4 = [1, 2, 3, 4]
 
 MODELS = [
     # ------------------------------------------------------------------ time series
-    dict(id="ols", group="Time series", name="OLS with diagnostics", guide="research-guide/ols.html", fn=timeseries.ols,
+    dict(id="ols", group="Time series", name="OLS with diagnostics", guide="time-series-guide/ols.html", fn=timeseries.ols,
          fields=[col("y", "Dependent variable"), cols("x", "Explanatory variables"), TIME,
                  sel("cov", "Standard errors", [["HC1", "Robust HC1"], ["HC0", "Robust HC0"], ["HC2", "Robust HC2"], ["HC3", "Robust HC3"],
                                                  ["HAC", "Newey-West HAC"], ["nonrobust", "Conventional"]], "HC1"),
                  num("hac_lags", "HAC lags", 4)],
          example=dict(file=TS + "returns.csv", spec=dict(y="sp500_return", x=["ip_growth", "d_fedfunds", "d_credit_spread"], time="date", cov="HC1"))),
-    dict(id="ardl", group="Time series", name="ARDL bounds test", guide="research-guide/ardl.html", fn=timeseries.ardl,
+    dict(id="ardl", group="Time series", name="ARDL bounds test", guide="time-series-guide/ardl.html", fn=timeseries.ardl,
          fields=[col("y", "Dependent variable"), cols("x", "Regressors"), TIME, num("max_lag", "Maximum lag of y", 4),
                  num("max_order", "Maximum lag of regressors", 4), sel("ic", "Lag selection", [["aic", "AIC"], ["bic", "BIC"], ["hqic", "HQIC"]], "aic"),
                  sel("case", "Bounds-test case", [["3", "3: unrestricted constant"], ["2", "2: restricted constant"], ["5", "5: unrestricted trend"],
                                                   ["4", "4: restricted trend"], ["1", "1: no deterministic terms"]], "3")],
          example=dict(file=TS + "yield.csv", spec=dict(y="yield_10y", x=["inflation", "gdp_growth", "unemployment"], time="date"))),
-    dict(id="nardl", group="Time series", name="Nonlinear ARDL (NARDL)", guide="research-guide/nardl.html", fn=timeseries.nardl,
+    dict(id="nardl", group="Time series", name="Nonlinear ARDL (NARDL)", guide="time-series-guide/nardl.html", fn=timeseries.nardl,
          fields=[col("y", "Dependent variable"), cols("x", "Asymmetric regressor(s)"), cols("controls", "Symmetric controls", required=False), TIME,
                  num("max_lag", "Maximum lag of y", 4), num("max_order", "Maximum lag of regressors", 4),
                  sel("ic", "Lag selection", [["aic", "AIC"], ["bic", "BIC"]], "aic"), sel("case", "Bounds-test case", [["3", "3"], ["2", "2"], ["5", "5"]], "3")],
          example=dict(file=TS + "passthrough.csv", spec=dict(y="baa_yield", x=["fedfunds"], time="date", max_lag=6, max_order=6))),
-    dict(id="var", group="Time series", name="Vector autoregression (VAR)", guide="research-guide/var.html", fn=timeseries.var,
+    dict(id="var", group="Time series", name="Vector autoregression (VAR)", guide="time-series-guide/var.html", fn=timeseries.var,
          fields=[cols("vars", "Variables (Cholesky order)"), TIME, sel("transform", "Transformation", [["levels", "Levels (as given)"], ["diff", "First differences"]], "levels"),
                  num("max_lags", "Maximum lag for selection", 8), num("lags", "Lag order (blank = selected)", ""),
                  sel("ic", "Lag selection", [["aic", "AIC"], ["bic", "BIC"], ["hqic", "HQIC"], ["fpe", "FPE"]], "aic"), num("horizon", "IRF horizon", 12)],
          example=dict(file=TS + "prices.csv", spec=dict(vars=["log_sp500", "log_indpro"], time="date", transform="diff", max_lags=12))),
-    dict(id="vecm", group="Time series", name="Vector error correction (VECM)", guide="research-guide/vecm.html", fn=timeseries.vecm,
+    dict(id="vecm", group="Time series", name="Vector error correction (VECM)", guide="time-series-guide/vecm.html", fn=timeseries.vecm,
          fields=[cols("vars", "Variables"), TIME,
                  sel("deterministic", "Deterministic terms", [["ci", "Constant in the cointegrating relation"], ["co", "Constant outside"],
                                                                ["li", "Trend in the cointegrating relation"], ["lo", "Linear trend outside"], ["n", "None"]], "ci"),
                  num("max_lags", "Maximum lag for selection", 8), num("lags", "Lags in differences (blank = selected)", ""),
                  num("rank", "Cointegration rank (blank = trace test)", ""), num("horizon", "IRF horizon", 12)],
          example=dict(file=TS + "rates.csv", spec=dict(vars=["yield_10y", "yield_1y"], time="date", deterministic="ci"))),
-    dict(id="iv_gmm", group="Time series", name="2SLS and GMM", guide="research-guide/gmm.html", fn=timeseries.iv_gmm,
+    dict(id="iv_gmm", group="Time series", name="2SLS and GMM", guide="time-series-guide/gmm.html", fn=timeseries.iv_gmm,
          fields=[col("y", "Dependent variable"), cols("endog", "Endogenous regressors"), cols("instruments", "Excluded instruments"),
                  cols("exog", "Exogenous regressors (included)", required=False), TIME,
                  sel("method", "Estimator", [["2sls", "2SLS"], ["gmm", "Two-step efficient GMM"]], "2sls"),
@@ -92,7 +92,7 @@ MODELS = [
                       spec=dict(y="fedfunds", endog=["inflation", "output_gap"], exog=["fedfunds_l1"], time="date",
                                 instruments=["inflation_l1", "inflation_l2", "inflation_l3", "inflation_l4", "output_gap_l1", "output_gap_l2",
                                              "output_gap_l3", "output_gap_l4", "fedfunds_l2"], method="gmm", cov="kernel", bandwidth=4))),
-    dict(id="lp", group="Time series", name="Local projections (impulse responses)", guide="research-guide/lp.html", fn=lp.lp,
+    dict(id="lp", group="Time series", name="Local projections (impulse responses)", guide="time-series-guide/lp.html", fn=lp.lp,
          fields=[col("y", "Response variable"), col("shock", "Shock variable"),
                  cols("contemp", "Contemporaneous controls (ordered before the shock)", required=False),
                  cols("controls", "Other controls (lags only)", required=False),

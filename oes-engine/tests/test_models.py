@@ -63,7 +63,7 @@ def test_every_model_runs_on_its_guide_example(model_id):
 
 
 def test_catalog_covers_every_guide_page():
-    pages = {"research-guide": {"ols", "ardl", "nardl", "var", "vecm", "gmm", "lp"},
+    pages = {"time-series-guide": {"ols", "ardl", "nardl", "var", "vecm", "gmm", "lp"},
              "panel-data-guide": {"pols", "fe", "re", "diff", "fedk", "gmm", "mg", "pmg", "csardl", "plp"},
              "causal-inference-guide": {"did", "staggered", "its", "iv", "rdd", "scm", "gsc"},
              "ml-guide": {"lasso", "ridge", "enet", "rf", "xgb", "dml-plr", "dml-irm", "dml-iv", "causal-forest"},
