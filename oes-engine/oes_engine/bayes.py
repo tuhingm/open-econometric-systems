@@ -523,7 +523,9 @@ def favar(df, spec):
     hyper = _hyper(spec)
     h = int_option(spec, "horizon", 20, 1, 60, "IRF horizon")
     ndraw, burn, rng = _draw_settings(spec, 1000, 500)
-    Bs, Ss, Yt, X, extra = estimate_bvar(Y, p, prior, hyper, 0.0, ndraw, burn, rng)
+    dl = _floats(spec, "delta", len(yv), "Prior mean of the own first lag")
+    delta = np.concatenate([np.zeros(K), np.zeros(len(yv)) if dl is None else dl])      # factors are standardised: prior mean 0
+    Bs, Ss, Yt, X, extra = estimate_bvar(Y, p, prior, hyper, delta, ndraw, burn, rng)
     # loadings of every informational series on (factors, observed variables)
     Zl = np.column_stack([np.ones(len(Y)), Y])
     Lfull = np.linalg.lstsq(Zl, Xs, rcond=None)[0]
@@ -563,7 +565,8 @@ def favar(df, spec):
     tabs.append(D.fevd_table(I, names))
     summary = [stat("Observations", len(Yt)), stat("Factors", K), stat("Informational series", len(xv)), stat("Variance explained", float(share[:K].sum()), 3),
                stat("Prior", PRIORS[prior])]
-    notes = ["Two-step FAVAR (Bernanke, Boivin and Eliasz 2005): factors are principal components of the standardised informational "
+    notes = [f"Prior mean of the own first lag: 0 for the factors, {', '.join(f'{v:g}' for v in delta[K:])} for {', '.join(yv)}.",
+             "Two-step FAVAR (Bernanke, Boivin and Eliasz 2005): factors are principal components of the standardised informational "
              "series; a Bayesian VAR is estimated on the factors and the observed variables; responses of every informational series "
              "come from its loadings on the VAR variables.",
              f"The shock is the last observed variable ({yv[-1]}), identified recursively (ordered last)."]

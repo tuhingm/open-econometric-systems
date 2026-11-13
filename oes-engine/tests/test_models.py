@@ -66,13 +66,15 @@ def test_catalog_covers_every_guide_page():
     pages = {"research-guide": {"ols", "ardl", "nardl", "var", "vecm", "gmm"},
              "panel-data-guide": {"pols", "fe", "re", "diff", "fedk", "gmm", "mg", "pmg", "csardl"},
              "causal-inference-guide": {"did", "staggered", "its", "iv", "rdd", "scm", "gsc"},
-             "ml-guide": {"lasso", "ridge", "enet", "rf", "xgb", "dml-plr", "dml-irm", "dml-iv", "causal-forest"}}
+             "ml-guide": {"lasso", "ridge", "enet", "rf", "xgb", "dml-plr", "dml-irm", "dml-iv", "causal-forest"},
+             "bayesian-guide": {"bvar", "bayes-reg", "favar", "steady-state", "panel-var", "tvp-var", "sv-var", "mixed-frequency", "threshold-var"},
+             "markov-guide": {"ms-ar", "ms-regression", "ms-var", "ms-panel-var"}}
     guides = {m["guide"] for m in E.MODELS if m["guide"]}
     for folder, slugs in pages.items():
         for s in slugs:
             assert f"{folder}/{s}.html" in guides, f"{folder}/{s}.html has no OES model"
     assert len(E.MODELS) == 44
-    assert {m["group"] for m in E.MODELS if not m["guide"]} == {"Bayesian", "Markov switching"}
+    assert all(m["guide"] for m in E.MODELS)                       # every model links to a guide page
     json.dumps(E.catalog())
 
 

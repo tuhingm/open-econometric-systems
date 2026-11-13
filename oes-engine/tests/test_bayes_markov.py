@@ -344,3 +344,46 @@ def test_bvar_paper_tables():
     fe = T(r, "Forecast-error variance")
     for row in fe["rows"]:
         assert sum(row[2:]) == pytest.approx(100, abs=2)          # medians of shares need not add to exactly 100
+
+
+# ------------------------------------------------------------------------------------------------ Markov-switching: fitting and warnings
+def _phillips():
+    from test_models import csv
+    d = pd.read_csv(__import__("io").StringIO(csv("oes/examples/us_macro.csv")))
+    d["inflation_lag"], d["unemp_lag"] = d["inflation"].shift(1), d["unemp"].shift(1)
+    return d.dropna().to_csv(index=False)
+
+
+_PH = dict(y="inflation", x=["inflation_lag", "unemp_lag"], time="date")
+
+
+def test_ms_regression_switching_slopes_never_fit_worse_than_common_slopes():
+    # the common-slope model is nested in the switching-slope model, so its likelihood is a lower bound (a local maximum would break this)
+    data = _phillips()
+    ll = {sx: {x["label"]: x["value"] for x in E.run("ms_reg", data, dict(_PH, switching_exog=sx))["summary"]}["Log-likelihood"] for sx in ("no", "yes")}
+    assert ll["yes"] >= ll["no"] - 1e-3
+
+
+def test_ms_regression_one_regime_benchmark_row_is_filled():
+    out = E.run("ms_reg", _phillips(), _PH)
+    one = T(out, "Number of regimes")["rows"][0]
+    assert one[0] == 1 and all(v is not None and np.isfinite(v) for v in one[1:])
+    assert one[1] < T(out, "Number of regimes")["rows"][1][1]                         # two regimes fit better than the linear regression
+
+
+def test_ms_regression_collapsed_regime_is_flagged():
+    out = E.run("ms_reg", _phillips(), dict(_PH, regimes=3))
+    assert any("collapsed" in n or "almost zero" in n for n in out["notes"])
+    ok = E.run("ms_reg", _phillips(), _PH)
+    assert not any("collapsed" in n or "almost zero" in n for n in ok["notes"])
+
+
+def test_ms_ar_chart_series_have_the_length_of_the_axis():
+    out = E.run("ms_ar", *_ex("ms_ar"))
+    for c in out["charts"]:
+        assert all(len(s["y"]) == len(c["x"]) for s in c["series"]), c["title"]
+
+
+def test_ms_models_offer_a_reference_series():
+    for mid in ("ms_reg", "ms_ar", "msvar"):
+        assert "reference" in [f["key"] for f in E.BY_ID[mid]["fields"]], mid

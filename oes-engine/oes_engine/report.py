@@ -61,7 +61,11 @@ def plot(result, prefix="", ncols=3, size=(3.3, 2.4)):
             elif c.get("kind") == "scatter":
                 ax.plot(x, y, ".", ms=3, label=s["name"])
             else:
-                ax.plot(x, y, lw=1.3, label=s["name"])
+                n_ok = sum(1 for v in y if v == v)
+                if 0 < n_ok < 0.6 * len(y):          # sparse series (e.g. a quarterly series on a monthly axis): draw points, not lines
+                    ax.plot(x, y, "o", ms=3.2, color="#d9661f", label=s["name"])
+                else:
+                    ax.plot(x, y, lw=1.3, label=s["name"])
         step = max(1, len(x) // 5)
         ax.set_xticks(x[::step])
         ax.set_xticklabels([str(v) for v in c["x"][::step]], fontsize=7)

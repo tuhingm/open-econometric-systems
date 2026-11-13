@@ -19,7 +19,9 @@ user's computer.
 | Markov switching | Markov-switching regression · Markov-switching AR (Hamilton) · Markov-switching VAR (MSI, MSIH, MSIAH) · Markov-switching panel VAR |
 
 The Bayesian VARs follow the ECB's BEAR toolbox (Dieppe, Legrand and van Roye 2016). The Bayesian and Markov-switching
-groups have no guide pages on the website yet.
+groups have their own guides on the website, [Bayesian Guide](https://tuhingm.github.io/almamun/bayesian-guide/) and
+[Markov-Switching Guide](https://tuhingm.github.io/almamun/markov-guide/): one page per model, with pre-estimation tests,
+estimation, convergence and regime checks, diagnostics, robustness and text for the paper.
 
 DSGE models are not included: they are solved and estimated in Dynare (see the DSGE Guide).
 
@@ -52,7 +54,7 @@ differences, logs, growth rates, cross-sectional demeaning, sample restriction) 
 
 ## Testing
 
-`oes-engine/tests/` (118 tests) checks that every model runs on its guide example and compares the
+`oes-engine/tests/` (127 tests) checks that every model runs on its guide example and compares the
 estimates with reference implementations and published results:
 
 - OLS, VAR and VECM against statsmodels; 2SLS and GMM (all covariance options, Hansen J) against linearmodels;

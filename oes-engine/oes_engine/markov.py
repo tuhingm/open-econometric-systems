@@ -38,15 +38,17 @@ def _ms_tables(res, k, labels, y, names_y):
                       [[f"Regime {j}", f(dur[j], 3), f((sm_[:, j] > 0.5).mean(), 3), f(yy[reg == j].mean() if (reg == j).any() else None)] for j in range(k)]))
     lab = labels[-len(sm_):]
     charts = [chart("Smoothed regime probabilities", lab, [(f"Regime {j}", sm_[:, j]) for j in range(k)], "", "probability"),
-              chart(f"{names_y} and its regime-dependent fitted mean", lab, [(names_y, yy), ("fitted", np.asarray(res.fittedvalues)[-len(sm_):])])]
+              chart(f"{names_y} and its regime-dependent fitted mean", lab, [(names_y, yy), ("fitted", _align(res.fittedvalues, len(sm_)))])]
     return tabs, charts, sm_
 
 
-def _fit(mod, rng_seed=0, quick=False):
-    np.random.seed(rng_seed)
+def _fit(mod, rng_seed=0, quick=False, warm=None):
+    """Maximum likelihood from the default start, random starts and (if given) the solution of a restricted model (the likelihood has local maxima); keeps the highest."""
     best = None
     import warnings
-    for kw in (({},) if quick else ({}, {"search_reps": 20})):
+    runs = [({}, rng_seed)] if quick else [({}, rng_seed)] + [({"search_reps": 20}, rng_seed + j) for j in range(4)]
+    for kw, sd in runs:
+        np.random.seed(sd)
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -55,9 +57,52 @@ def _fit(mod, rng_seed=0, quick=False):
                 best = r
         except Exception:
             continue
+    if best is not None and warm is not None:
+        try:
+            names = list(mod.param_names)
+            sp = np.array(mod.start_params, float)
+            rn, rp = list(warm.model.param_names), np.asarray(warm.params, float)
+            for i, nm in enumerate(names):
+                base = nm.split("[")[0]
+                m_ = [j for j, q in enumerate(rn) if q == nm] or [j for j, q in enumerate(rn) if q.split("[")[0] == base]
+                if m_:
+                    sp[i] = rp[m_[0]]
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                r = mod.fit(start_params=sp, disp=False)
+            if np.isfinite(r.llf) and r.llf > best.llf + 1e-6:
+                best = r
+        except Exception:
+            pass
     if best is None:
         raise OESError("The Markov-switching model could not be estimated; try fewer regimes or fewer switching parameters.")
     return best
+
+
+def _align(v, n):
+    """Last n values of v, padded with NaN at the start if v is shorter (lagged models drop observations in the fitted series)."""
+    v = np.asarray(v, float).ravel()
+    return v[-n:] if len(v) >= n else np.concatenate([np.full(n - len(v), np.nan), v])
+
+
+def _collapse_notes(res):
+    """Warn when a regime is tiny or its variance is ~0: the likelihood then peaks on one or two outliers (a degenerate solution)."""
+    try:
+        sm_ = np.asarray(res.smoothed_marginal_probabilities)
+        if sm_.ndim == 1:
+            sm_ = np.column_stack([sm_, 1 - sm_])
+        out, n = [], sm_.shape[0]
+        for j in range(sm_.shape[1]):
+            cnt = int((sm_.argmax(1) == j).sum())
+            if cnt < max(5, 0.05 * n):
+                out.append(f"Regime {j} holds only {cnt} of {n} periods: the solution has probably collapsed onto a few outliers. "
+                           "Treat the regimes as unreliable: use fewer regimes or fewer switching parameters, or check for outlying observations.")
+        vp = [q for q, nm in zip(np.asarray(res.params, float), res.model.param_names) if nm.startswith("sigma2")]
+        if vp and min(vp) < 1e-4 * max(max(vp), 1e-12):
+            out.append("A regime has a variance of almost zero, a sign of a degenerate solution (standard errors are then meaningless).")
+        return out
+    except Exception:
+        return []
 
 
 def _ref_spec(spec, df):
@@ -79,6 +124,11 @@ def _sm_paper_tables(res, mod_factory, y, labels, kmax, ref=None, refvals=None):
         try:
             if k_ == 1:
                 r_ = mod_factory(1)
+                if hasattr(r_, "df_model") and not hasattr(r_, "hqic"):    # OLS: count the variance as a parameter, as the switching models do
+                    n_, q_ = float(r_.nobs), len(r_.params) + 1
+                    rows.append([k_, f(r_.llf, 3), f(2 * q_ - 2 * r_.llf, 3), f(q_ * np.log(n_) - 2 * r_.llf, 3),
+                                 f(2 * q_ * np.log(np.log(n_)) - 2 * r_.llf, 3)])
+                    continue
             else:
                 r_ = res if k_ == res.model.k_regimes else _fit(mod_factory(k_), quick=True)
             rows.append([k_, f(r_.llf, 3), f(r_.aic, 3), f(r_.bic, 3), f(r_.hqic, 3)])
@@ -138,7 +188,14 @@ def ms_reg(df, spec):
     mod = sm.tsa.MarkovRegression(d[y].astype(float).reset_index(drop=True), k_regimes=k, trend="c",
                                   exog=d[x].astype(float).reset_index(drop=True) if x else None,
                                   switching_exog=sx, switching_variance=sv)
-    res = _fit(mod)
+    warm = None
+    if x and sx:
+        try:
+            warm = _fit(sm.tsa.MarkovRegression(d[y].astype(float).reset_index(drop=True), k_regimes=k, trend="c",
+                                                exog=d[x].astype(float).reset_index(drop=True), switching_exog=False, switching_variance=sv), quick=True)
+        except Exception:
+            warm = None
+    res = _fit(mod, warm=warm)
     tabs, charts, _ = _ms_tables(res, k, labels, d[y].to_numpy(float), y)
     ref = _ref_spec(spec, df)
     yy = d[y].astype(float).reset_index(drop=True)
@@ -153,7 +210,7 @@ def ms_reg(df, spec):
     summary = [stat("Observations", int(res.nobs)), stat("Regimes", k), stat("Log-likelihood", res.llf, 3), stat("AIC", res.aic, 3), stat("BIC", res.bic, 3)]
     notes = [f"Markov-switching regression (Hamilton 1989) with a switching constant" + (", switching slopes" if x and sx else "")
              + (" and switching variance" if sv else "") + "; maximum likelihood (EM, then quasi-Newton), standard errors from the Hessian."]
-    return result("ms_reg", f"Markov-switching regression: {y}", res.nobs, summary, tabs, charts, notes)
+    return result("ms_reg", f"Markov-switching regression: {y}", res.nobs, summary, tabs, charts, notes + _collapse_notes(res))
 
 
 def ms_ar(df, spec):
@@ -181,7 +238,7 @@ def ms_ar(df, spec):
                stat("AIC", res.aic, 3), stat("BIC", res.bic, 3)]
     notes = ["Hamilton's (1989) Markov-switching autoregression: the regime shifts the mean of the series (the AR part applies to "
              "deviations from the regime mean)" + ("; AR coefficients switch" if sa else "") + ("; variance switches" if sv else "") + "."]
-    return result("ms_ar", f"Markov-switching AR({order}): {y}", res.nobs, summary, tabs, charts, notes)
+    return result("ms_ar", f"Markov-switching AR({order}): {y}", res.nobs, summary, tabs, charts, notes + _collapse_notes(res))
 
 
 # ================================================================================================ EM for MS-VAR / MS panel VAR
