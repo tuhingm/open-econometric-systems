@@ -13,7 +13,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from . import bayes, causal, markov, ml, panel, pvar, statespace_var, timeseries
+from . import bayes, causal, lp, markov, ml, panel, pvar, statespace_var, timeseries
 from .core import OESError, read_csv, time_order
 from .report import frame, plot, show, summary, tables
 
@@ -92,6 +92,21 @@ MODELS = [
                       spec=dict(y="fedfunds", endog=["inflation", "output_gap"], exog=["fedfunds_l1"], time="date",
                                 instruments=["inflation_l1", "inflation_l2", "inflation_l3", "inflation_l4", "output_gap_l1", "output_gap_l2",
                                              "output_gap_l3", "output_gap_l4", "fedfunds_l2"], method="gmm", cov="kernel", bandwidth=4))),
+    dict(id="lp", group="Time series", name="Local projections (impulse responses)", guide="research-guide/lp.html", fn=lp.lp,
+         fields=[col("y", "Response variable"), col("shock", "Shock variable"),
+                 cols("contemp", "Contemporaneous controls (ordered before the shock)", required=False),
+                 cols("controls", "Other controls (lags only)", required=False),
+                 cols("instrument", "Instrument(s) for the shock (LP-IV)", required=False), TIME,
+                 num("lags", "Lags of every variable", 4), num("horizon", "Horizon", 12),
+                 sel("outcome", "Outcome", [["level", "Level: y(t+h)"], ["diff", "Change since t-1: y(t+h) - y(t-1)"],
+                                            ["cumsum", "Cumulative sum: y(t) + ... + y(t+h)"]], "level"),
+                 sel("scale", "Size of the shock", [["unit", "One unit"], ["sd", "One standard deviation"]], "unit"),
+                 sel("cov", "Standard errors", [["hac", "Newey-West HAC"], ["robust", "Robust (HC1)"]], "hac"),
+                 num("bandwidth", "HAC bandwidth (blank = horizon + 1)", ""),
+                 sel("lag_augment", "Lag augmentation", [["no", "No"], ["yes", "Yes (one extra lag, robust errors)"]], "no")],
+         example=dict(file=TS + "returns.csv",
+                      spec=dict(y="ip_growth", shock="d_credit_spread", contemp=["sp500_return"], controls=["d_fedfunds"], outcome="cumsum",
+                                scale="sd", time="date", lags=6, horizon=24))),
     # ------------------------------------------------------------------ panel data
     dict(id="pols", group="Panel data", name="Pooled OLS", guide="panel-data-guide/pols.html", fn=panel.pols,
          fields=[col("y", "Dependent variable"), cols("x", "Regressors"), UNIT, PTIME, PCOV, BW],
@@ -136,6 +151,18 @@ MODELS = [
     dict(id="csardl", group="Panel data", name="Cross-sectionally augmented ARDL (CS-ARDL)", guide="panel-data-guide/csardl.html", fn=panel.csardl,
          fields=[col("y", "Dependent variable"), cols("x", "Regressors"), UNIT, PTIME, num("pt", "Lags of the averages (blank = T^(1/3))", "")],
          example=dict(file=PD + "cigar.csv", spec=dict(y="log_sales", x=["log_price", "log_income", "log_pimin"], unit="state", time="year", pt=1))),
+    dict(id="plp", group="Panel data", name="Panel local projections", guide="panel-data-guide/plp.html", fn=lp.plp,
+         fields=[col("y", "Response variable"), col("shock", "Shock variable"),
+                 cols("contemp", "Contemporaneous controls", required=False), cols("controls", "Other controls (lags only)", required=False), UNIT, PTIME,
+                 num("lags", "Lags of every variable", 2), num("horizon", "Horizon", 8),
+                 sel("effects", "Fixed effects", [["unit", "Unit effects"], ["twoway", "Unit and time effects"], ["none", "None (pooled)"]], "unit"),
+                 sel("outcome", "Outcome", [["level", "Level: y(t+h)"], ["diff", "Change since t-1: y(t+h) - y(t-1)"],
+                                            ["cumsum", "Cumulative sum: y(t) + ... + y(t+h)"]], "level"),
+                 sel("scale", "Size of the shock", [["unit", "One unit"], ["sd", "One standard deviation"]], "unit"),
+                 sel("cov", "Standard errors", [["clustered", "Clustered by unit"], ["dk", "Driscoll-Kraay"]], "clustered"), BW],
+         example=dict(file=PD + "cigar.csv", ops=[dict(op="diff", vars=["log_price", "log_income"], unit="state", time="year")],
+                      spec=dict(y="log_sales", shock="d_log_price", contemp=["d_log_income"], unit="state", time="year", lags=2, horizon=8,
+                                effects="unit", cov="clustered", scale="sd"))),
     # ------------------------------------------------------------------ causal inference
     dict(id="did", group="Causal inference", name="Difference-in-differences", guide="causal-inference-guide/did.html", fn=causal.did,
          fields=[col("outcome", "Outcome"), col("treat", "Treatment indicator (0/1, on when treated)"), col("unit", "Unit identifier"), col("time", "Time variable"),

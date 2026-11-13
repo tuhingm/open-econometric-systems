@@ -1,6 +1,6 @@
 # OES model catalogue
 
-All 44 models below are implemented in `oes-engine` and run in the browser at
+All 46 models below are implemented in `oes-engine` and run in the browser at
 <https://tuhingm.github.io/almamun/oes/>. `oes_engine.catalog()` is the machine-readable version (input fields,
 guide page, example dataset, Pyodide packages).
 
@@ -12,6 +12,7 @@ guide page, example dataset, Pyodide packages).
 | `var` | VAR | research-guide/var | statsmodels | statsmodels |
 | `vecm` | VECM | research-guide/vecm | statsmodels (Johansen) | statsmodels |
 | `iv_gmm` | 2SLS and GMM | research-guide/gmm | NumPy | linearmodels IV2SLS / IVGMM |
+| `lp` | Local projections | research-guide/lp | NumPy (HAC, lag augmentation, LP-IV) | statsmodels OLS and VAR impulse responses |
 | `pols` | Pooled OLS | panel-data-guide/pols | NumPy | linearmodels PooledOLS |
 | `fe` | Fixed effects | panel-data-guide/fe | NumPy (within, two-way) | linearmodels PanelOLS |
 | `re` | Random effects | panel-data-guide/re | NumPy (Swamy-Arora) | linearmodels RandomEffects |
@@ -21,6 +22,7 @@ guide page, example dataset, Pyodide packages).
 | `mg` | Mean group / CCE-MG | panel-data-guide/mg | guide helper `panel_estimators.py` | unit-by-unit OLS |
 | `pmg` | PMG / MG / DFE | panel-data-guide/pmg | guide helper | convergence, Hausman |
 | `csardl` | CS-ARDL | panel-data-guide/csardl | guide helper | simulated panel |
+| `plp` | Panel local projections | panel-data-guide/plp | NumPy (within, clustered, Driscoll-Kraay) | linearmodels PanelOLS |
 | `did` | Difference-in-differences | causal-inference-guide/did | guide helper `causal_tests.py` | simulation; TWFE vs linearmodels |
 | `staggered` | Staggered DiD | causal-inference-guide/staggered | guide helper | runs on guide data |
 | `its` | Interrupted time series | causal-inference-guide/its | guide helper | runs on guide data |
