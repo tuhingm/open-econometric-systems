@@ -13,7 +13,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from . import bayes, causal, lp, markov, ml, panel, pvar, statespace_var, timeseries
+from . import bayes, breaks, causal, lp, markov, ml, panel, pthreshold, pvar, statespace_var, svar, timeseries
 from .core import OESError, read_csv, time_order
 from .report import frame, plot, show, summary, tables
 
@@ -108,6 +108,25 @@ MODELS = [
                       spec=dict(y="ip_growth", shock="d_credit_spread", contemp=["sp500_return"], controls=["d_fedfunds"], outcome="cumsum",
                                 scale="sd", time="date", lags=6, horizon=24))),
     # ------------------------------------------------------------------ panel data
+    dict(id="svar", group="Time series", name="Structural VAR (SVAR)", guide="time-series-guide/svar.html", fn=svar.svar,
+         fields=[cols("vars", "Variables (in the order of the identification)"), col("shock", "Shock to trace (blank = the first variable)", required=False), TIME,
+                 sel("identification", "Identification", [["cholesky", "Recursive (Cholesky ordering)"], ["longrun", "Long-run restrictions (Blanchard-Quah)"],
+                                                          ["proxy", "External instrument (proxy-SVAR)"]], "cholesky"),
+                 cols("instrument", "Instrument for the shock (proxy-SVAR only)", required=False),
+                 sel("transform", "Transformation", [["levels", "Levels (as given)"], ["diff", "First differences"]], "levels"),
+                 num("lags", "VAR lags (blank = chosen by AIC)", ""), num("horizon", "Horizon", 16), num("boot", "Bootstrap replications", 200),
+                 sel("level", "Confidence band", [["95", "95%"], ["90", "90%"], ["68", "68%"]], "95"),
+                 num("size", "Shock size (proxy-SVAR, in units of the shock variable)", 1)],
+         example=dict(file=TS + "yield.csv", spec=dict(vars=["gdp_growth", "unemployment"], shock="gdp_growth", identification="longrun", time="date",
+                                                       lags=4, horizon=20, boot=200))),
+    dict(id="bp", group="Time series", name="Structural breaks (Bai-Perron)", guide="time-series-guide/bp.html", fn=breaks.breaks,
+         fields=[col("y", "Dependent variable"), cols("x", "Regressors that may change (blank = mean shifts only)", required=False), TIME,
+                 sel("trim", "Trimming (minimum regime share)", [["0.15", "15% (up to 5 breaks)"], ["0.10", "10% (up to 8 breaks)"], ["0.20", "20% (up to 3 breaks)"],
+                                                                 ["0.25", "25% (up to 2 breaks)"]], "0.15"),
+                 num("max_breaks", "Maximum number of breaks", 5),
+                 sel("select", "Choose the number of breaks by", [["bic", "BIC"], ["lwz", "LWZ"], ["sequential", "Sequential supF(l+1|l) tests"],
+                                                                 ["udmax", "UDmax, then sequential"]], "bic")],
+         example=dict(file=TS + "yield.csv", spec=dict(y="inflation", time="date", trim="0.15", max_breaks=5, select="bic"))),
     dict(id="pols", group="Panel data", name="Pooled OLS", guide="panel-data-guide/pols.html", fn=panel.pols,
          fields=[col("y", "Dependent variable"), cols("x", "Regressors"), UNIT, PTIME, PCOV, BW],
          example=dict(file=PD + "crime4.csv", spec=dict(y="lcrmrte", x=["lprbarr", "lprbconv", "lprbpris", "lavgsen", "lpolpc"], unit="county", time="year"))),
@@ -163,6 +182,13 @@ MODELS = [
          example=dict(file=PD + "cigar.csv", ops=[dict(op="diff", vars=["log_price", "log_income"], unit="state", time="year")],
                       spec=dict(y="log_sales", shock="d_log_price", contemp=["d_log_income"], unit="state", time="year", lags=2, horizon=8,
                                 effects="unit", cov="clustered", scale="sd"))),
+    dict(id="pthresh", group="Panel data", name="Panel threshold regression (Hansen)", guide="panel-data-guide/pthresh.html", fn=pthreshold.pthresh,
+         fields=[col("y", "Dependent variable"), cols("x", "Regressors whose slopes change with the regime"),
+                 cols("controls", "Controls (common slope)", required=False), col("threshold", "Threshold variable"), UNIT, PTIME,
+                 num("trim", "Trimming (minimum regime share)", 0.05), num("grid", "Grid points", 100), num("boot", "Bootstrap replications", 300),
+                 sel("max_thresholds", "Test for", [["2", "One and two thresholds"], ["1", "One threshold only"]], "2")],
+         example=dict(file=PD + "crime4.csv", spec=dict(y="lcrmrte", x=["lprbarr"], controls=["lprbconv", "lavgsen"], threshold="lpolpc",
+                                                      unit="county", time="year", trim=0.05, grid=100, boot=300))),
     # ------------------------------------------------------------------ causal inference
     dict(id="did", group="Causal inference", name="Difference-in-differences", guide="causal-inference-guide/did.html", fn=causal.did,
          fields=[col("outcome", "Outcome"), col("treat", "Treatment indicator (0/1, on when treated)"), col("unit", "Unit identifier"), col("time", "Time variable"),

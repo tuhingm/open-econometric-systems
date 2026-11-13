@@ -7,12 +7,12 @@ user's computer.
 
 **Use it:** <https://tuhingm.github.io/almamun/oes/>
 
-## Models (46)
+## Models (49)
 
 | Group | Models |
 |---|---|
-| Time series | OLS with diagnostics · ARDL bounds test · NARDL · VAR · VECM · 2SLS and GMM · Local projections |
-| Panel data | Pooled OLS · Fixed effects · Random effects · First differences · FE with Driscoll-Kraay errors · Difference GMM · Mean group / CCE-MG · PMG / MG / DFE · CS-ARDL · Panel local projections |
+| Time series | OLS with diagnostics · ARDL bounds test · NARDL · VAR · VECM · 2SLS and GMM · Local projections · Structural VAR (Cholesky, long-run, proxy) · Structural breaks (Bai-Perron) |
+| Panel data | Pooled OLS · Fixed effects · Random effects · First differences · FE with Driscoll-Kraay errors · Difference GMM · Mean group / CCE-MG · PMG / MG / DFE · CS-ARDL · Panel local projections · Panel threshold regression (Hansen) |
 | Causal inference | Difference-in-differences · Staggered DiD (Callaway-Sant'Anna) · Interrupted time series · IV (2SLS) · Regression discontinuity · Synthetic control · Generalized synthetic control |
 | Machine learning | LASSO · Ridge · Elastic net · Random forest · XGBoost · Double ML (partially linear, interactive, IV) · Causal forest |
 | Bayesian | Bayesian linear regression (exact or Gibbs) · BVAR with Minnesota, Normal-Wishart, Independent Normal-Wishart or Normal-diffuse priors and block exogeneity · FAVAR · Mean-adjusted (steady-state) BVAR · Panel VAR (OLS mean group, Bayesian pooled, Zellner-Hong, hierarchical, static factor, dynamic factor) · TVP-VAR · Stochastic-volatility VAR · Mixed-frequency BVAR · Threshold BVAR |
@@ -54,7 +54,7 @@ differences, logs, growth rates, cross-sectional demeaning, sample restriction) 
 
 ## Testing
 
-`oes-engine/tests/` (136 tests) checks that every model runs on its guide example and compares the
+`oes-engine/tests/` (150 tests) checks that every model runs on its guide example and compares the
 estimates with reference implementations and published results:
 
 - OLS, VAR and VECM against statsmodels; 2SLS and GMM (all covariance options, Hansen J) against linearmodels;
