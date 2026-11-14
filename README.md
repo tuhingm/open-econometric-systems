@@ -7,16 +7,16 @@ user's computer.
 
 **Use it:** <https://tuhingm.github.io/almamun/oes/>
 
-## Models (51)
+## Models (69)
 
 | Group | Models |
 |---|---|
-| Time series | OLS with diagnostics · ARDL bounds test · NARDL · VAR · VECM · 2SLS and GMM · Local projections · Structural VAR (Cholesky, long-run, proxy) · Structural breaks (Bai-Perron) · Threshold regression (TAR / SETAR) · Smooth-transition regression (LSTAR / ESTAR) |
-| Panel data | Pooled OLS · Fixed effects · Random effects · First differences · FE with Driscoll-Kraay errors · Difference GMM · Mean group / CCE-MG · PMG / MG / DFE · CS-ARDL · Panel local projections · Panel threshold regression (Hansen) |
-| Causal inference | Difference-in-differences · Staggered DiD (Callaway-Sant'Anna) · Interrupted time series · IV (2SLS) · Regression discontinuity · Synthetic control · Generalized synthetic control |
+| Time series | OLS with diagnostics · ARDL bounds test · NARDL · VAR · VECM · 2SLS and GMM · Local projections · Structural VAR (Cholesky, long-run, proxy) · Structural breaks (Bai-Perron) · Threshold regression (TAR / SETAR) · Smooth-transition regression (LSTAR / ESTAR) · ARIMA / SARIMA · GARCH / GJR / EGARCH · Quantile regression · Cointegration tests (Engle-Granger, Johansen, Gregory-Hansen) · Wavelet coherence |
+| Panel data | Pooled OLS · Fixed effects · Random effects · First differences · FE with Driscoll-Kraay errors · Difference GMM · Mean group / CCE-MG · PMG / MG / DFE · CS-ARDL · Panel local projections · Panel threshold regression (Hansen) · Two-way FE with cluster inference · Dynamic panel threshold · Panel cointegration · Panel quantile regression · Spatial panel (SAR, SEM, SDM) |
+| Causal inference | Difference-in-differences · Staggered DiD (Callaway-Sant'Anna) · Interrupted time series · IV (2SLS) · Regression discontinuity · Synthetic control · Generalized synthetic control · Event study (Sun-Abraham) · Synthetic DiD · Matching / IPW / doubly robust · Shift-share (Bartik) IV |
 | Machine learning | LASSO · Ridge · Elastic net · Random forest · XGBoost · Double ML (partially linear, interactive, IV) · Causal forest |
-| Bayesian | Bayesian linear regression (exact or Gibbs) · BVAR with Minnesota, Normal-Wishart, Independent Normal-Wishart or Normal-diffuse priors and block exogeneity · FAVAR · Mean-adjusted (steady-state) BVAR · Panel VAR (OLS mean group, Bayesian pooled, Zellner-Hong, hierarchical, static factor, dynamic factor) · TVP-VAR · Stochastic-volatility VAR · Mixed-frequency BVAR · Threshold BVAR |
-| Markov switching | Markov-switching regression · Markov-switching AR (Hamilton) · Markov-switching VAR (MSI, MSIH, MSIAH) · Markov-switching panel VAR |
+| Bayesian | Bayesian linear regression (exact or Gibbs) · BVAR with Minnesota, Normal-Wishart, Independent Normal-Wishart or Normal-diffuse priors and block exogeneity · FAVAR · Mean-adjusted (steady-state) BVAR · Panel VAR (OLS mean group, Bayesian pooled, Zellner-Hong, hierarchical, static factor, dynamic factor) · TVP-VAR · Stochastic-volatility VAR · Mixed-frequency BVAR · Threshold BVAR · Bayesian local projections · Sign-restricted BVAR · Hierarchical panel regression |
+| Markov switching | Markov-switching regression · Markov-switching AR (Hamilton) · Markov-switching VAR (MSI, MSIH, MSIAH) · Markov-switching panel VAR · Markov switching with time-varying transition probabilities |
 
 The Bayesian VARs follow the ECB's BEAR toolbox (Dieppe, Legrand and van Roye 2016). The Bayesian and Markov-switching
 groups have their own guides on the website, [Bayesian Guide](https://tuhingm.github.io/almamun/bayesian-guide/) and

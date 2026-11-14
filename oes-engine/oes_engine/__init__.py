@@ -13,11 +13,12 @@ import warnings
 import numpy as np
 import pandas as pd
 
-from . import bayes, breaks, causal, lp, markov, ml, panel, pthreshold, pvar, smooth, statespace_var, svar, tar, timeseries
+from . import bayes, bayes_extra, breaks, causal, causal_extra, lp, markov, ml, panel, pthreshold, pvar, smooth, statespace_var, svar, tar, timeseries, ts_extra
+from . import panel_extra
 from .core import OESError, read_csv, time_order
 from .report import frame, plot, show, summary, tables
 
-__version__ = "1.2.0"
+__version__ = "1.4.0"
 
 # field helpers -------------------------------------------------------------------------------------------------
 def col(key, label, required=True, help=""):
@@ -375,6 +376,92 @@ MODELS += [
          example=dict(file=PD + "garrett.csv", spec=dict(vars=["gdp_growth", "unem"], unit="country", time="year", lags=1, switching="MSIH"))),
 ]
 
+MODELS += [
+    dict(id="blp", group="Bayesian", name="Bayesian local projections", guide="bayesian-guide/blp.html", fn=bayes_extra.blp,
+         fields=[col("y", "Response variable"), col("shock", "Shock variable"), cols("contemp", "Contemporaneous controls (ordered before the shock)", required=False), TIME,
+                 num("lags", "Lags of every variable", 4), num("horizon", "Horizon", 16), num("s0", "Prior sd of the first response (blank = automatic)", ""),
+                 num("tau", "Smoothness tau (blank = marginal likelihood)", ""), num("seed", "Random seed", 0)],
+         example=dict(file=OX + "us_macro.csv", spec=dict(y="unemp", shock="tbilrate", contemp=["inflation"], time="date", lags=4, horizon=16))),
+    dict(id="sign_bvar", group="Bayesian", name="Sign-restricted Bayesian VAR", guide="bayesian-guide/sign-bvar.html", fn=bayes_extra.sign_bvar,
+         fields=[cols("vars", "Variables"), col("shock_var", "Variable that rises on impact after the shock"), cols("neg", "Variables restricted to fall", required=False),
+                 cols("pos", "Other variables restricted to rise", required=False), TIME, num("lags", "Lags", 4), num("restrict_horizon", "Restriction horizon (periods)", 4),
+                 num("lambda1", "Overall tightness lambda1", 0.2), num("horizon", "IRF horizon", 20), num("draws", "Posterior draws", 1000), num("seed", "Random seed", 0)],
+         example=dict(file=OX + "us_macro.csv", spec=dict(vars=["gdp_growth", "inflation", "m1_growth", "tbilrate"], shock_var="tbilrate", neg=["inflation", "m1_growth"], time="date", draws=500))),
+    dict(id="hier_panel", group="Bayesian", name="Hierarchical panel regression", guide="bayesian-guide/hier-panel.html", fn=bayes_extra.hier_panel,
+         fields=[col("y", "Dependent variable"), col("x", "Variable with a unit-specific slope"), cols("controls", "Controls (common slopes)", required=False), UNIT, col("time", "Time identifier (optional)", required=False),
+                 num("chains", "Chains", 2), num("iters", "Iterations per chain", 3000), num("burn", "Burn-in", 1000),
+                 num("scale_slope", "Half-Cauchy scale, spread of slopes", 1), num("scale_intercept", "Half-Cauchy scale, spread of intercepts", 5)],
+         example=dict(file=PD + "garrett.csv", spec=dict(y="gdp_growth", x="trade", controls=["unem"], unit="country", time="year", iters=2500, burn=800))),
+    dict(id="ms_tvtp", group="Markov switching", name="Markov switching with time-varying probabilities", guide="markov-guide/ms-tvtp.html", fn=bayes_extra.ms_tvtp,
+         fields=[col("y", "Dependent variable"), cols("driver", "Driver(s) of the transition probabilities"), TIME,
+                 sel("lag_driver", "Lag the driver one period", [["yes", "Yes (known at the start of the period)"], ["no", "No"]], "yes"),
+                 sel("switching_variance", "Switching variance", [["yes", "Yes"], ["no", "No"]], "yes"),
+                 col("reference", "Reference 0/1 series, e.g. recession dates (optional)", required=False, help="Compared with the estimated regimes")],
+         example=dict(file=OX + "gnp_fedfunds.csv", spec=dict(y="gnp_growth", driver=["d_fedfunds"], time="date", reference="nber_recession"))),
+]
+
+CE = "oes/examples/"
+MODELS += [
+    dict(id="eventstudy", group="Causal inference", name="Event study (Sun-Abraham) with pre-trend sensitivity", guide="causal-inference-guide/eventstudy.html", fn=causal_extra.eventstudy,
+         fields=[col("y", "Outcome"), UNIT, PTIME, col("treat", "Treatment indicator (0/1, stays 1 once treated)"), num("pre", "Pre-treatment periods", 5), num("post", "Post-treatment periods", 3),
+                 num("boot", "Bootstrap replications (over units)", 150), num("seed", "Random seed", 0)],
+         example=dict(file=CI + "castle_murder.csv", spec=dict(y="l_murder", unit="state", time="year", treat="castle_law", pre=5, post=3, boot=100))),
+    dict(id="sdid", group="Causal inference", name="Synthetic difference-in-differences", guide="causal-inference-guide/sdid.html", fn=causal_extra.sdid,
+         fields=[col("y", "Outcome"), UNIT, PTIME, col("treat", "Treatment indicator (0/1, common adoption period)"), num("placebos", "Placebo draws (several treated units)", 100), num("seed", "Random seed", 0)],
+         example=dict(file=CI + "texas.csv", spec=dict(y="bmprison", unit="state", time="year", treat="expansion"))),
+    dict(id="matching", group="Causal inference", name="Matching, IPW and doubly robust estimation", guide="causal-inference-guide/matching.html", fn=causal_extra.matching,
+         fields=[col("y", "Outcome"), col("treat", "Treatment indicator (0/1)"), cols("x", "Covariates"), num("boot", "Bootstrap replications", 200), num("seed", "Random seed", 0)],
+         example=dict(file=CE + "card_college.csv", spec=dict(y="lwage", treat="college", x=["black", "smsa", "south", "married", "exper", "exper2"], boot=100))),
+    dict(id="bartik", group="Causal inference", name="Shift-share (Bartik) instrumental variables", guide="causal-inference-guide/bartik.html", fn=causal_extra.bartik,
+         fields=[col("y", "Outcome"), col("x", "Endogenous variable"), cols("shares", "Initial industry shares (one column per industry)"), num("shocks", "Industry shocks (comma-separated, in the order of the share columns)", ""),
+                 cols("controls", "Controls", required=False)],
+         example=dict(file=CE + "shiftshare.csv", spec=dict(y="dy", x="dx", shares=["share_%d" % i for i in range(1, 61)], shocks="0.0488,-0.0333,-0.1236,0.0050,-0.0012,0.0200,0.1599,-0.0827,0.1836,-0.0420,-0.0827,0.1521,0.1407,0.0583,0.0484,-0.0651,0.1687,-0.0155,0.0787,-0.0534,-0.0304,-0.0182,0.1980,0.0610,0.0978,-0.0517,-0.0176,0.0100,-0.0759,0.0436,0.0152,0.0930,0.0000,-0.0198,0.1069,-0.0313,0.0109,0.0365,-0.0230,-0.0143,0.1044,-0.1253,0.0507,-0.1275,0.1389,-0.2460,-0.0570,-0.1034,0.0927,0.0241,-0.0149,0.0479,0.3004,-0.0136,-0.0935,0.0754,-0.0107,0.0125,-0.1818,0.0238"))),
+]
+
+MODELS += [
+    dict(id="arima", group="Time series", name="ARIMA / SARIMA with forecast evaluation", guide="time-series-guide/arima.html", fn=ts_extra.arima,
+         fields=[col("y", "Series"), TIME, sel("d", "Differencing order d", [["auto", "Automatic (ADF)"], ["0", "0"], ["1", "1"], ["2", "2"]], "auto"),
+                 num("max_p", "Largest p in the grid", 3), num("max_q", "Largest q in the grid", 3), num("season", "Seasonal period (0 = none)", 0),
+                 sel("sdiff", "Seasonal differencing", [["no", "No"], ["yes", "Yes"]], "no"), num("holdout", "Hold-out periods", 12)],
+         example=dict(file=OX + "pce_inflation.csv", spec=dict(y="infl", time="date", d="0", max_p=2, max_q=2, holdout=24))),
+    dict(id="garch", group="Time series", name="GARCH, GJR and EGARCH volatility models", guide="time-series-guide/garch.html", fn=ts_extra.garch,
+         fields=[col("y", "Return series"), TIME, sel("model", "Reported model", [["best", "Lowest BIC"], ["GARCH, t", "GARCH, t"], ["GJR, t", "GJR, t"], ["EGARCH, t", "EGARCH, t"],
+                                                                                 ["GJR, skewed t", "GJR, skewed t"], ["EGARCH, skewed t", "EGARCH, skewed t"]], "best")],
+         example=dict(file=OX + "markets.csv", spec=dict(y="sp500_return", time="date"))),
+    dict(id="quantile", group="Time series", name="Quantile regression (growth at risk)", guide="time-series-guide/quantile.html", fn=ts_extra.quantile,
+         fields=[col("y", "Dependent variable"), cols("x", "Explanatory variables"), TIME, num("taus", "Quantiles (comma-separated)", "0.05,0.25,0.5,0.75,0.95"),
+                 num("boot", "Bootstrap replications", 200), num("block", "Block length (1 = pairs bootstrap)", 8), num("seed", "Random seed", 0)],
+         example=dict(file=OX + "growth_risk.csv", spec=dict(y="growth_next4", x=["spread", "term", "growth"], time="date", boot=100, block=8))),
+    dict(id="cointegration", group="Time series", name="Cointegration tests (Engle-Granger, Johansen, Gregory-Hansen)", guide="time-series-guide/cointegration.html", fn=ts_extra.cointegration,
+         fields=[col("y", "Dependent variable"), cols("x", "Regressors"), TIME, num("sims", "Simulation replications (break test critical values)", 100), num("seed", "Random seed", 0)],
+         example=dict(file=OX + "taylor.csv", spec=dict(y="fedfunds", x=["inflation"], time="date", sims=60))),
+    dict(id="wavelet", group="Time series", name="Wavelet coherence", guide="time-series-guide/wavelet.html", fn=ts_extra.wavelet,
+         fields=[col("x", "First series"), col("y", "Second series"), TIME, num("pmin", "Shortest period", 16), num("pmax", "Longest period", ""), num("sims", "Simulation replications", 100), num("seed", "Random seed", 0)],
+         example=dict(file=OX + "wavelet_us.csv", spec=dict(x="infl", y="m2", time="date", pmin=16, pmax=256, sims=60))),
+]
+
+MODELS += [
+    dict(id="twfe", group="Panel data", name="Two-way fixed effects: clustering, wild bootstrap, placebo", guide="panel-data-guide/twfe.html", fn=panel_extra.twfe,
+         fields=[col("y", "Dependent variable"), cols("x", "Regressors (the first is tested with the bootstrap)"), UNIT, PTIME, num("boot", "Wild cluster bootstrap draws", 499), num("placebo", "Placebo experiment draws (0 = skip)", 200), num("seed", "Random seed", 0)],
+         example=dict(file=PD + "cigar.csv", spec=dict(y="log_sales", x=["log_price", "log_income"], unit="state", time="year", boot=299, placebo=100))),
+    dict(id="dpthresh", group="Panel data", name="Dynamic panel threshold regression", guide="panel-data-guide/dpthresh.html", fn=panel_extra.dpthresh,
+         fields=[col("y", "Dependent variable (its lag is a regressor)"), col("x", "Regressor with a threshold effect"), cols("controls", "Controls (no threshold)", required=False), UNIT, PTIME,
+                 col("tvar", "Threshold variable (blank = the regressor); its lag is used", required=False), num("trim", "Trimming share", 0.15), num("grid", "Grid points", 71), num("boot", "Bootstrap draws (threshold test)", 99), num("seed", "Random seed", 0)],
+         example=dict(file=PD + "laborsupply.csv", spec=dict(y="lnhr", x="lnwg", controls=["kids"], unit="id", time="year", boot=49))),
+    dict(id="pcoint", group="Panel data", name="Panel cointegration tests (Kao, Westerlund-type, CIPS)", guide="panel-data-guide/pcoint.html", fn=panel_extra.pcoint,
+         fields=[col("y", "Dependent variable"), cols("x", "Regressors"), UNIT, PTIME, num("sims", "Simulation replications", 200), num("seed", "Random seed", 0)],
+         example=dict(file=PD + "gasoline.csv", spec=dict(y="lgaspcar", x=["lincomep", "lrpmg", "lcarpcap"], unit="country", time="year", sims=100))),
+    dict(id="pquant", group="Panel data", name="Panel quantile regression (pooled, Canay, MM-QR)", guide="panel-data-guide/pquant.html", fn=panel_extra.pquant,
+         fields=[col("y", "Dependent variable"), cols("x", "Regressors"), UNIT, PTIME, sel("time_effects", "Period dummies", [["yes", "Yes"], ["no", "No"]], "yes"),
+                 num("taus", "Quantiles (comma-separated, at least three)", "0.1,0.25,0.5,0.75,0.9"), num("boot", "Bootstrap replications (over units)", 100), num("seed", "Random seed", 0)],
+         example=dict(file=PD + "wagepan_full.csv", spec=dict(y="lwage", x=["union", "married", "expersq"], unit="nr", time="year", boot=30))),
+    dict(id="spatial", group="Panel data", name="Spatial panel models (SAR, SEM, SDM)", guide="panel-data-guide/spatial.html", fn=panel_extra.spatial,
+         fields=[col("y", "Dependent variable"), cols("x", "Regressors"), UNIT, PTIME, col("neighbours", "Neighbour list column (unit names separated by ;)", required=False, help="Same list on every row of a unit"),
+                 col("lat", "Latitude (alternative to the neighbour list)", required=False), col("lon", "Longitude (alternative to the neighbour list)", required=False),
+                 num("knn", "Nearest neighbours (coordinates only)", 5), num("sims", "Simulation draws for the effects", 500), num("seed", "Random seed", 0)],
+         example=dict(file=OX + "produc_nb.csv", spec=dict(y="log_gsp", x=["log_pcap", "log_pc", "log_emp", "unemp"], unit="state", time="year", neighbours="neighbours"))),
+]
+
 BY_ID = {m["id"]: m for m in MODELS}
 GROUPS = ["Time series", "Panel data", "Causal inference", "Machine learning", "Bayesian", "Markov switching"]
 
@@ -387,7 +474,7 @@ def packages(model_id):
     return ["scikit-learn", "xgboost"] if model_id == "xgb" else ["scikit-learn"]
 
 
-SLOW = {"dml_irm", "dml_iv", "causal_forest", "staggered", "tvpvar", "mfbvar", "svvar"}
+SLOW = {"dml_irm", "dml_iv", "causal_forest", "staggered", "tvpvar", "mfbvar", "svvar", "hier_panel", "sign_bvar", "ms_tvtp", "eventstudy", "sdid", "matching", "bartik", "arima", "garch", "quantile", "cointegration", "wavelet", "twfe", "dpthresh", "pcoint", "pquant", "spatial"}
 
 
 def catalog():

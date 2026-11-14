@@ -1,6 +1,6 @@
 # OES model catalogue
 
-All 51 models below are implemented in `oes-engine` and run in the browser at
+All 69 models below are implemented in `oes-engine` and run in the browser at
 <https://tuhingm.github.io/almamun/oes/>. `oes_engine.catalog()` is the machine-readable version (input fields,
 guide page, example dataset, Pyodide packages).
 
@@ -57,8 +57,28 @@ guide page, example dataset, Pyodide packages).
 | `ms_ar` | Markov-switching AR | markov-guide/ms-ar | statsmodels | Hamilton (1989) |
 | `msvar` | Markov-switching VAR | markov-guide/ms-var | EM (Hamilton filter, Kim smoother) | statsmodels likelihood; simulation |
 | `mspvar` | Markov-switching panel VAR | markov-guide/ms-panel-var | EM with a common regime path | simulation |
+| `arima` | ARIMA / SARIMA | time-series-guide/arima | statsmodels SARIMAX, BIC grid, rolling forecasts, Diebold-Mariano | guide (AR(1) 0.445, BIC 1713.4) |
+| `garch` | GARCH, GJR, EGARCH | time-series-guide/garch | NumPy/SciPy maximum likelihood (normal, t, Hansen skewed t) | `arch` results in the guide (EGARCH skewed-t BIC 2742.8) |
+| `quantile` | Quantile regression | time-series-guide/quantile | statsmodels QuantReg, block bootstrap | guide (spread coefficient -2.38 at q05) |
+| `cointegration` | Cointegration tests | time-series-guide/cointegration | statsmodels (Engle-Granger, Johansen), NumPy Gregory-Hansen with simulated critical values, DOLS | guide (EG -2.05; GH C/T -5.66 at 1980Q1) |
+| `wavelet` | Wavelet coherence | time-series-guide/wavelet | NumPy/SciPy Morlet CWT, AR(1) Monte Carlo | guide; null rejection share about 5% |
+| `twfe` | Two-way FE inference | panel-data-guide/twfe | NumPy (demeaning, cluster, two-way, wild cluster bootstrap, placebo) | guide (cluster s.e. 0.223) |
+| `dpthresh` | Dynamic panel threshold | panel-data-guide/dpthresh | NumPy first-difference IV, grid search, wild bootstrap | guide (threshold 2.79, F = 90.4) |
+| `pcoint` | Panel cointegration | panel-data-guide/pcoint | guide helper tests, NumPy group ADF and Westerlund-type Gt, DOLS | guide (Kao -1.69, p = 0.045) |
+| `pquant` | Panel quantile regression | panel-data-guide/pquant | statsmodels QuantReg (pooled, Canay, MM-QR), bootstrap over units | guide |
+| `spatial` | Spatial panel (SAR, SEM, SDM) | panel-data-guide/spatial | SciPy concentrated likelihood, LM tests, simulated effects | guide (rho 0.196, lambda 0.384) |
+| `eventstudy` | Event study (Sun-Abraham) | causal-inference-guide/eventstudy | NumPy, bootstrap, pre-trend sensitivity | guide |
+| `sdid` | Synthetic DiD | causal-inference-guide/sdid | SciPy SLSQP weights | guide |
+| `matching` | Matching, IPW, doubly robust | causal-inference-guide/matching | NumPy, bootstrap, robustness value | guide |
+| `bartik` | Shift-share IV | causal-inference-guide/bartik | NumPy, Rotemberg weights, industry-level s.e. | guide |
+| `blp` | Bayesian local projections | bayesian-guide/blp | NumPy, smoothness prior with marginal-likelihood tau | guide |
+| `sign_bvar` | Sign-restricted BVAR | bayesian-guide/sign-bvar | NumPy, Minnesota NIW prior, Haar rotations | guide |
+| `hier_panel` | Hierarchical panel regression | bayesian-guide/hier-panel | Gibbs sampler, half-Cauchy priors | guide |
+| `ms_tvtp` | Markov switching with TVTP | markov-guide/ms-tvtp | statsmodels MarkovRegression (exog_tvtp) | guide |
 
 Notes
+- GARCH is estimated by maximum likelihood in NumPy because the `arch` package is not available in Pyodide; the DCC step of the guide is not included. Phillips-Ouliaris tests are not included in the cointegration model.
+- The spatial model takes a neighbour-list column or coordinates, because OES reads a single CSV.
 - The causal forest is a doubly robust forest, not EconML's `CausalForestDML` (EconML does not run in Pyodide).
 - The double-ML learners use lighter settings than the guides (100 trees by default) so they run in the browser;
   the number of trees, folds and repetitions can be raised in the form.
