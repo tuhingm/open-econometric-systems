@@ -73,3 +73,10 @@ def test_cox_ph_summary_uses_supported_phreg_result_attributes():
     assert result["summary"]["N"] == len(df)
     assert "Partial_Likelihood_AIC" in result["summary"]
     assert "Partial_Likelihood_BIC" in result["summary"]
+
+def test_kaplan_meier_group_column_is_optional():
+    df, spec = sd._generate_omvp_dataset("stat_km", seed=101)
+    df = df.drop(columns=["trt"])
+    result = sd.est_km(df, {"time": "time", "event": "event", "group": "trt"})
+    assert result["summary"]["Subjects_N"] == len(df)
+    assert result["summary"]["Log_Rank_p"] is None
